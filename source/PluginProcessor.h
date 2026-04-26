@@ -168,5 +168,13 @@ private:
     int lastTunerReferenceIndex { -1 };
     int lastTunerRangeParamIndex { -1 };
 
+    // Per-block gain smoothing — stores the value used at the end of the previous block
+    // so each new block can ramp from that value to the current target, eliminating zipper noise.
+    float prevAmpInputGainLinear  { 0.01f };
+    float prevPreampGain          { 4.4f };
+    float prevStage2Gain          { 3.1f };
+    float prevPowerAmpDrive       { 1.08f };
+    float prevOutputGainLinear    { 1.0f };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HexstackAudioProcessor)
 };

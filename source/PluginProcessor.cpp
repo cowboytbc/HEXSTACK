@@ -204,9 +204,15 @@ namespace
 
     MicProfile getFixedCabProfile()
     {
-        return { -0.3f, 0.8f, 625.0f, 0.86f, -0.9f, 3125.0f, 0.90f, 2.8f, 1.2f,
-                 4725.0f, 0.96f, 1.25f, -0.85f, 5900.0f, -0.05f, -2.3f,
-                 8000.0f, 6125.0f, 80.0f, 0.17f, 0.95f };
+        // proximityNearDb boosted to 2.0 for more low-end proximity effect (balls)
+        // bodyDb raised from -0.9 to 0.6 for more chest/body in the 625 Hz range
+        // presenceNearDb/Far reduced from 2.8/1.2 to 0.6/0.3 to tame harsh 3kHz
+        // biteNearDb reduced from 1.25 to 0.2 to tame harsh 4.7kHz bite
+        // airNearDb reduced from -0.05 to -1.8 for more natural air rolloff
+        // lowPassNear/Far reduced from 8000/6125 to 5500/4800 Hz for a realistic SM57 rolloff
+        return { 2.0f, 0.8f, 625.0f, 0.86f, 0.6f, 3125.0f, 0.90f, 0.6f, 0.3f,
+                 4725.0f, 0.96f, 0.2f, -0.85f, 5900.0f, -1.8f, -3.0f,
+                 5500.0f, 4800.0f, 80.0f, 0.17f, 0.95f };
     }
 
     std::vector<float> createCabIRFromProfile(const MicProfile& profile, float micDistance)
@@ -223,8 +229,8 @@ namespace
         for (int i = 0; i < numSamples; ++i)
         {
             const float t = static_cast<float>(i) / sampleRate;
-            const float lowCab = std::sin(2.0f * pi * 106.0f * t + 0.20f) * std::exp(-(20.0f + 4.0f * distance) * t) * 0.36f;
-            const float thump = std::sin(2.0f * pi * 148.0f * t + 0.33f) * std::exp(-(25.0f + 6.0f * distance) * t) * 0.29f;
+            const float lowCab = std::sin(2.0f * pi * 106.0f * t + 0.20f) * std::exp(-(20.0f + 4.0f * distance) * t) * 0.46f;
+            const float thump = std::sin(2.0f * pi * 148.0f * t + 0.33f) * std::exp(-(25.0f + 6.0f * distance) * t) * 0.36f;
             const float wood = std::sin(2.0f * pi * 248.0f * t + 0.54f) * std::exp(-(30.0f + 8.0f * distance) * t) * 0.11f;
             const float box = std::sin(2.0f * pi * 382.0f * t + 0.88f) * std::exp(-(35.0f + 10.0f * distance) * t) * 0.11f;
             const float cone = std::sin(2.0f * pi * 1425.0f * t + 0.42f) * std::exp(-(55.0f + 16.0f * distance) * t) * 0.11f;
@@ -1327,8 +1333,22 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
         auto* channelData = buffer.getWritePointer(channel);
 
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        // Gain ramp start values — computed once per channel from the saved previous-block values
+        // so both channels follow the same ramp trajectory (identical t for same sample index).
+        const int numBlockSamples = buffer.getNumSamples();
+        const float rampScale = numBlockSamples > 1 ? 1.0f / static_cast<float>(numBlockSamples - 1) : 0.0f;
+        const float ampInputGainStart  = prevAmpInputGainLinear;
+        const float preampGainStart    = prevPreampGain;
+        const float stage2GainStart    = prevStage2Gain;
+        const float powerAmpDriveStart = prevPowerAmpDrive;
+
+        for (int sample = 0; sample < numBlockSamples; ++sample)
         {
+            const float t = static_cast<float>(sample) * rampScale;
+            const float smoothedAmpInputGain  = ampInputGainStart  + t * (ampInputGain  - ampInputGainStart);
+            const float smoothedPreampGain    = preampGainStart    + t * (preampGain    - preampGainStart);
+            const float smoothedStage2Gain    = stage2GainStart    + t * (stage2Gain    - stage2GainStart);
+            const float smoothedPowerAmpDrive = powerAmpDriveStart + t * (powerAmpDrive - powerAmpDriveStart);
             float pre = channelData[sample];
 
             if (wahOn)
@@ -1372,7 +1392,7 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
                 pre = juce::jmap(juce::jlimit(0.0f, 1.0f, overdriveMix), pre, driven);
             }
 
-            float x = inputHighPassFilters[channel].processSample(pre * ampInputGain);
+            float x = inputHighPassFilters[channel].processSample(pre * smoothedAmpInputGain);
             x = preampTightFilters[channel].processSample(x);
 
             pickTransientState[static_cast<size_t>(channel)] = pickTransientAlpha * pickTransientState[static_cast<size_t>(channel)]
@@ -1381,13 +1401,13 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             x += pickTransient * (0.08f + 0.04f * rhythmBias + 0.04f * grindBias - 0.01f * leadBias - 0.02f * atmosBias);
 
             const float asym = x + 0.15f * juce::jlimit(-1.0f, 1.0f, x) + 0.028f * x * x - 0.010f * x * x * x;
-            const float stage1 = std::tanh((asym + 0.045f * asym * asym) * preampGain);
+            const float stage1 = std::tanh((asym + 0.045f * asym * asym) * smoothedPreampGain);
             const float stage2Input = 0.96f * stage1 + 0.24f * stage1 * stage1 - 0.15f * stage1 * stage1 * stage1;
-            const float stage2 = std::tanh(stage2Input * stage2Gain);
+            const float stage2 = std::tanh(stage2Input * smoothedStage2Gain);
             const float grindStage = std::tanh((1.04f * stage2 + 0.16f * stage1 - 0.08f * stage2 * stage2 * stage2)
                                                * (1.08f + 0.10f * rhythmBias + 0.08f * grindBias - 0.03f * atmosBias));
             const float stage3Seed = 0.68f * grindStage + 0.24f * stage2 + 0.16f * stage1;
-            const float stage3 = std::tanh((stage3Seed - 0.06f * stage3Seed * stage3Seed * stage3Seed) * powerAmpDrive);
+            const float stage3 = std::tanh((stage3Seed - 0.06f * stage3Seed * stage3Seed * stage3Seed) * smoothedPowerAmpDrive);
             const float powerBloom = std::tanh((0.82f * stage3 + 0.22f * stage2 + 0.08f * stage1)
                                                * powerBloomDrive);
             float shaped = 0.24f * stage1 + 0.54f * stage2 + 0.24f * stage3 + 0.22f * grindStage + powerBloomBlend * powerBloom;
@@ -1405,6 +1425,12 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             channelData[sample] = juce::jlimit(-1.08f, 1.08f, shaped);
         }
     }
+
+    // Commit smoothed gain targets after processing all channels.
+    prevAmpInputGainLinear = ampInputGain;
+    prevPreampGain         = preampGain;
+    prevStage2Gain         = stage2Gain;
+    prevPowerAmpDrive      = powerAmpDrive;
 
     juce::dsp::AudioBlock<float> wetBlock(buffer);
     juce::dsp::ProcessContextReplacing<float> wetContext(wetBlock);
@@ -1707,12 +1733,10 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         }
     }
 
+    // Ramp output gain across the block to eliminate master-volume zipper noise.
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        auto* data = buffer.getWritePointer(channel);
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-            data[sample] *= outputGain;
-    }
+        buffer.applyGainRamp(channel, 0, buffer.getNumSamples(), prevOutputGainLinear, outputGain);
+    prevOutputGainLinear = outputGain;
 
     if (presetTransitionRampRemainingSamples > 0)
     {
@@ -2187,9 +2211,11 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     {
         const float relativeDelta = std::abs(frequency - tunerSmoothedFrequencyHz)
                                   / juce::jmax(1.0f, tunerSmoothedFrequencyHz);
-        const float attack = 0.58f;
-        const float release = 0.32f;
-        smoothing = (relativeDelta > 0.015f) ? attack : release;
+        // Reduced from 0.58/0.32 to 0.22/0.07 — much heavier smoothing eliminates jumpiness.
+        // Threshold raised from 0.015 to 0.025 to avoid flip-flopping between modes on small deviations.
+        const float attack  = 0.22f;
+        const float release = 0.07f;
+        smoothing = (relativeDelta > 0.025f) ? attack : release;
     }
     tunerSmoothedFrequencyHz = smoothing * frequency + (1.0f - smoothing) * tunerSmoothedFrequencyHz;
 
@@ -2205,7 +2231,9 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         tunerStableFrames = 1;
     }
 
-    const int midiNote = (tunerStableFrames >= 1) ? rawMidiNote : juce::jmax(rawMidiNote, 0);
+    // Require 3 consecutive frames on the same semitone before committing — prevents
+    // rapidly bouncing between adjacent notes while still locking on quickly.
+    const int midiNote = (tunerStableFrames >= 3) ? rawMidiNote : juce::jmax(rawMidiNote, 0);
     const float cents = (semitone - static_cast<float>(midiNote)) * 100.0f;
 
     tunerHasSignal.store(true);
