@@ -1109,15 +1109,13 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const bool presetIsRhythm = !presetIsLead;
     const float rhythmBias = presetIsRhythm ? 1.0f : 0.0f;
     const float leadBias   = presetIsLead   ? 1.0f : 0.0f;
-    const float grindBias  = 0.0f;  // retired
-    const float atmosBias  = 0.0f;  // retired
 
     const float inputGain = juce::Decibels::decibelsToGain(inputDb);
     const float outputGain = juce::Decibels::decibelsToGain(masterDb);
     const bool modernHighGainVoicing = overdriveOn || gain >= 0.58f || presetIsRhythm || presetIsLead;
     const float ampFrontEndBoostDb = juce::jmap(gain,
-                                                modernHighGainVoicing ? (4.0f + 0.8f * rhythmBias + 0.5f * grindBias - 0.3f * leadBias) : 0.6f,
-                                                modernHighGainVoicing ? (10.0f + 1.4f * rhythmBias + 0.8f * grindBias - 0.5f * leadBias) : 3.0f);
+                                                modernHighGainVoicing ? (4.0f + 0.8f * rhythmBias - 0.3f * leadBias) : 0.6f,
+                                                modernHighGainVoicing ? (10.0f + 1.4f * rhythmBias - 0.5f * leadBias) : 3.0f);
     const float ampInputGain = inputGain * juce::Decibels::decibelsToGain(ampFrontEndBoostDb);
     const float preampGain = juce::jmap(gain,
                                                      modernHighGainVoicing ? 4.4f : 2.5f,
@@ -1132,21 +1130,21 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
                                                                   modernHighGainVoicing ? 1.01f : 1.05f,
                                                                   modernHighGainVoicing ? 0.82f : 0.88f);
     const float tightLowCutHz = juce::jmap(gain,
-                                                         modernHighGainVoicing ? (110.0f + 14.0f * rhythmBias + 10.0f * grindBias - 6.0f * leadBias - 10.0f * atmosBias) : 82.0f,
-                                                         modernHighGainVoicing ? (170.0f + 24.0f * rhythmBias + 16.0f * grindBias - 10.0f * leadBias - 18.0f * atmosBias) : 122.0f);
+                                                         modernHighGainVoicing ? (110.0f + 14.0f * rhythmBias - 6.0f * leadBias) : 82.0f,
+                                                         modernHighGainVoicing ? (170.0f + 24.0f * rhythmBias - 10.0f * leadBias) : 122.0f);
     const float preampTightCutHz = juce::jmap(gain,
-                                                             modernHighGainVoicing ? (215.0f + 20.0f * rhythmBias + 12.0f * grindBias - 12.0f * leadBias - 14.0f * atmosBias) : 142.0f,
-                                                             modernHighGainVoicing ? (360.0f + 28.0f * rhythmBias + 18.0f * grindBias - 16.0f * leadBias - 22.0f * atmosBias) : 255.0f);
+                                                             modernHighGainVoicing ? (215.0f + 20.0f * rhythmBias - 12.0f * leadBias) : 142.0f,
+                                                             modernHighGainVoicing ? (360.0f + 28.0f * rhythmBias - 16.0f * leadBias) : 255.0f);
     const float overdriveDriveCurve = std::pow(juce::jlimit(0.0f, 1.0f, overdriveAmount), 0.78f);
     const float overdriveToneCurve = std::pow(juce::jlimit(0.0f, 1.0f, overdriveTone), 0.88f);
     const float overdriveTightCurve = std::pow(juce::jlimit(0.0f, 1.0f, overdriveTight), 0.92f);
     const float overdriveGain = juce::jmap(overdriveDriveCurve,
                                                                                      1.65f,
-                                                                                     13.8f + 0.5f * rhythmBias + 0.35f * grindBias);
+                                                                                     13.8f + 0.5f * rhythmBias);
     const float overdriveLevelGain = juce::Decibels::decibelsToGain(overdriveLevelDb);
     const float overdriveToneHz = juce::jmap(overdriveToneCurve,
-                                                                                         880.0f - 70.0f * rhythmBias - 40.0f * grindBias,
-                                                                                         3350.0f + 120.0f * leadBias - 80.0f * atmosBias);
+                                                                                         880.0f - 70.0f * rhythmBias,
+                                                                                         3350.0f + 120.0f * leadBias);
     const float overdriveToneAlpha = std::exp(-2.0f * juce::MathConstants<float>::pi * overdriveToneHz
                                               / static_cast<float>(currentSampleRate));
         const float overdriveTightHz = juce::jmap(overdriveTightCurve, 320.0f, 1180.0f);
@@ -1156,16 +1154,15 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     // STFU noise suppressor — downward expander on the input (gates noise before amp distorts it)
     if (stfuKnobVal > 0.005f)
     {
-        const float thresholdDb = -70.0f + stfuKnobVal * 55.0f + 1.5f * rhythmBias + 0.5f * grindBias - 2.0f * leadBias - 1.5f * atmosBias;  // knob 0→-70dB, 1→-15dB
+        const float thresholdDb = -70.0f + stfuKnobVal * 55.0f + 1.5f * rhythmBias - 2.0f * leadBias;
         const float threshold   = juce::Decibels::decibelsToGain(thresholdDb);
-        const float envWindowSeconds = 0.0048f - 0.0008f * rhythmBias + 0.0004f * grindBias + 0.0008f * leadBias + 0.0008f * atmosBias;
-        const float attackSeconds = 0.0016f - 0.0003f * rhythmBias + 0.0001f * grindBias + 0.0002f * leadBias;
-        // Longer release so the natural chug tail rings out before the gate closes.
-        const float releaseSeconds = 0.250f + 0.015f * grindBias + 0.080f * leadBias + 0.060f * atmosBias;
+        const float envWindowSeconds = 0.0048f - 0.0008f * rhythmBias + 0.0008f * leadBias;
+        const float attackSeconds = 0.0016f - 0.0003f * rhythmBias + 0.0002f * leadBias;
+        const float releaseSeconds = 0.250f + 0.080f * leadBias;
         // Hold: keep gate fully open after each note so the pick attack decays
         // naturally before the gate starts to close.  Without hold, the expansion
         // curve acts on the mid-decay signal and produces a high-freq "squeak".
-        const float holdSeconds = 0.080f + 0.010f * grindBias + 0.010f * leadBias;
+        const float holdSeconds = 0.080f + 0.010f * leadBias;
         const int   holdSamples = juce::roundToInt(holdSeconds * static_cast<float>(currentSampleRate));
         // Expansion power scales with knob: soft (r^2) at min → very hard (r^6) at max.
         // At full gate, r^6 at 50% threshold = -48 dB; impossible for amp gain to undo.
@@ -1212,32 +1209,32 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     const auto inputHP = juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, tightLowCutHz, 0.707f);
-    const float midPeakFreq = 870.0f + 110.0f * leadBias + 125.0f * grindBias - 28.0f * atmosBias + 55.0f * rhythmBias;
-    const float trebleShelfFreq = 3400.0f + 220.0f * leadBias - 40.0f * grindBias - 220.0f * atmosBias - 40.0f * rhythmBias;
-    const float presenceFreq = 3850.0f - 210.0f * leadBias - 60.0f * grindBias - 300.0f * atmosBias - 20.0f * rhythmBias;
-    const float presenceScale = 0.60f + 0.08f * leadBias + 0.05f * grindBias + 0.04f * atmosBias + 0.03f * rhythmBias;
-    const float outputLpStart = 9800.0f + 620.0f * leadBias - 110.0f * grindBias + 1000.0f * atmosBias - 100.0f * rhythmBias;
-    const float outputLpEnd = 6600.0f + 520.0f * leadBias - 80.0f * grindBias + 850.0f * atmosBias - 40.0f * rhythmBias;
-    const float thumpResonanceFreq = 96.0f + 8.0f * rhythmBias + 5.0f * grindBias - 4.0f * leadBias - 8.0f * atmosBias;
+    const float midPeakFreq = 870.0f + 110.0f * leadBias + 55.0f * rhythmBias;
+    const float trebleShelfFreq = 3400.0f + 220.0f * leadBias - 40.0f * rhythmBias;
+    const float presenceFreq = 3850.0f - 210.0f * leadBias - 20.0f * rhythmBias;
+    const float presenceScale = 0.60f + 0.08f * leadBias + 0.03f * rhythmBias;
+    const float outputLpStart = 9800.0f + 620.0f * leadBias - 100.0f * rhythmBias;
+    const float outputLpEnd = 6600.0f + 520.0f * leadBias - 40.0f * rhythmBias;
+    const float thumpResonanceFreq = 96.0f + 8.0f * rhythmBias - 4.0f * leadBias;
     const float thumpResonanceDb = juce::jlimit(0.0f,
                                                 4.6f,
-                                                1.0f + 1.20f * depth + 0.90f * gain + 0.45f * rhythmBias + 0.35f * grindBias - 0.18f * leadBias);
+                                                1.0f + 1.20f * depth + 0.90f * gain + 0.45f * rhythmBias - 0.18f * leadBias);
     const float depthShelfDb = juce::jmap(juce::jlimit(0.0f, 1.0f, depth),
-                                          -0.4f + 0.6f * rhythmBias + 0.4f * grindBias,
-                                          6.2f + 0.8f * rhythmBias + 0.6f * grindBias + 0.7f * leadBias + 0.7f * atmosBias);
-    const float pickTransientHz = 940.0f + 170.0f * rhythmBias + 120.0f * grindBias - 85.0f * leadBias - 110.0f * atmosBias;
+                                          -0.4f + 0.6f * rhythmBias,
+                                          6.2f + 0.8f * rhythmBias + 0.7f * leadBias);
+    const float pickTransientHz = 940.0f + 170.0f * rhythmBias - 85.0f * leadBias;
     const float pickTransientAlpha = std::exp(-2.0f * juce::MathConstants<float>::pi * pickTransientHz
                                               / static_cast<float>(currentSampleRate));
     const float powerBloomDrive = juce::jmap(gain,
-                                             modernHighGainVoicing ? (0.98f + 0.04f * rhythmBias + 0.03f * grindBias) : 1.04f,
-                                             modernHighGainVoicing ? (1.18f + 0.10f * rhythmBias + 0.08f * grindBias + 0.04f * leadBias) : 1.28f);
+                                             modernHighGainVoicing ? (0.98f + 0.04f * rhythmBias) : 1.04f,
+                                             modernHighGainVoicing ? (1.18f + 0.10f * rhythmBias + 0.04f * leadBias) : 1.28f);
     const float powerBloomBlend = juce::jlimit(0.0f,
                                                0.38f,
-                                               0.10f + 0.05f * rhythmBias + 0.04f * grindBias + 0.03f * leadBias + 0.06f * depth);
-    const float cabPunchDrive = 1.06f + 0.10f * gain + 0.08f * depth + 0.04f * rhythmBias + 0.03f * grindBias;
+                                               0.10f + 0.05f * rhythmBias + 0.03f * leadBias + 0.06f * depth);
+    const float cabPunchDrive = 1.06f + 0.10f * gain + 0.08f * depth + 0.04f * rhythmBias;
     const float cabPunchBlend = juce::jlimit(0.0f,
                                              0.38f,
-                                             0.12f + 0.10f * depth + 0.04f * rhythmBias + 0.04f * grindBias + 0.02f * leadBias);
+                                             0.12f + 0.10f * depth + 0.04f * rhythmBias + 0.02f * leadBias);
 
     const auto bassShelf = juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate, 115.0f, 0.72f, juce::Decibels::decibelsToGain(bassDb));
     const auto midPeak = juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate, midPeakFreq, 0.82f, juce::Decibels::decibelsToGain(midsDb));
@@ -1353,21 +1350,21 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             pickTransientState[static_cast<size_t>(channel)] = pickTransientAlpha * pickTransientState[static_cast<size_t>(channel)]
                                                               + (1.0f - pickTransientAlpha) * x;
             const float pickTransient = x - pickTransientState[static_cast<size_t>(channel)];
-            x += pickTransient * (0.08f + 0.04f * rhythmBias + 0.04f * grindBias - 0.01f * leadBias - 0.02f * atmosBias);
+            x += pickTransient * (0.08f + 0.04f * rhythmBias - 0.01f * leadBias);
 
             const float asym = x + 0.15f * juce::jlimit(-1.0f, 1.0f, x) + 0.028f * x * x - 0.010f * x * x * x;
             const float stage1 = std::tanh((asym + 0.045f * asym * asym) * smoothedPreampGain);
             const float stage2Input = 0.96f * stage1 + 0.24f * stage1 * stage1 - 0.15f * stage1 * stage1 * stage1;
             const float stage2 = std::tanh(stage2Input * smoothedStage2Gain);
             const float grindStage = std::tanh((1.04f * stage2 + 0.16f * stage1 - 0.08f * stage2 * stage2 * stage2)
-                                               * (1.08f + 0.10f * rhythmBias + 0.08f * grindBias - 0.03f * atmosBias));
+                                               * (1.08f + 0.10f * rhythmBias));
             const float stage3Seed = 0.68f * grindStage + 0.24f * stage2 + 0.16f * stage1;
             const float stage3 = std::tanh((stage3Seed - 0.06f * stage3Seed * stage3Seed * stage3Seed) * smoothedPowerAmpDrive);
             const float powerBloom = std::tanh((0.82f * stage3 + 0.22f * stage2 + 0.08f * stage1)
                                                * powerBloomDrive);
             float shaped = 0.24f * stage1 + 0.54f * stage2 + 0.24f * stage3 + 0.22f * grindStage + powerBloomBlend * powerBloom;
 
-            const float powerCompression = 1.0f / (1.0f + (0.14f + 0.14f * gain - 0.01f * leadBias - 0.01f * atmosBias) * std::abs(shaped));
+            const float powerCompression = 1.0f / (1.0f + (0.14f + 0.14f * gain - 0.01f * leadBias) * std::abs(shaped));
             shaped *= powerCompression;
             shaped *= ampLevelCompensation;
 
