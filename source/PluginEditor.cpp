@@ -1973,12 +1973,15 @@ void HexstackAudioProcessorEditor::updateTunerDisplay()
     tunerCentsMeter.setColour(juce::Slider::thumbColourId,
                               inTune ? juce::Colour::fromRGB(92, 230, 132)
                                      : juce::Colour::fromRGB(230, 50, 65));
-    tunerCentsMeter.setValue(static_cast<double>(cents), juce::dontSendNotification);
 
     tunerTargetCentsUi = cents;
     tunerDisplayCentsUi += (tunerTargetCentsUi - tunerDisplayCentsUi) * 0.34f;
     if (std::abs(tunerTargetCentsUi - tunerDisplayCentsUi) < 0.025f)
         tunerDisplayCentsUi = tunerTargetCentsUi;
+
+    // Drive the meter from the UI-smoothed value so it doesn't jerk on
+    // every analysis frame — the raw atomic can still change every ~93ms.
+    tunerCentsMeter.setValue(static_cast<double>(tunerDisplayCentsUi), juce::dontSendNotification);
     tunerSignalPresentUi = true;
     tunerInTuneUi = inTune;
     const float targetGlowStrength = juce::jlimit(0.0f, 1.0f, juce::jmap(tuner.levelDb, -60.0f, -12.0f, 0.0f, 1.0f));
@@ -2096,9 +2099,9 @@ void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& 
         {
             userHexPresets[static_cast<size_t>(i)].name = name;
             activeUserHexIndex = i;
-            saveUserHexList();
-            rebuildPresetCombo();
+            rebuildPresetCombo();  // UI first — persistence is best-effort
             presetCombo.setSelectedId(numBuiltInPresets + i + 1, juce::dontSendNotification);
+            saveUserHexList();
             return;
         }
     }
@@ -2111,58 +2114,51 @@ void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& 
     userHexPresets.push_back({ name, file });
     activeUserHexIndex = static_cast<int>(userHexPresets.size()) - 1;
 
-    saveUserHexList();
-    rebuildPresetCombo();
+    rebuildPresetCombo();  // UI first — persistence is best-effort
     presetCombo.setSelectedId(numBuiltInPresets + activeUserHexIndex + 1,
                                juce::dontSendNotification);
+    saveUserHexList();
 }
 
 void HexstackAudioProcessorEditor::loadUserHexList()
 {
     userHexPresets.clear();
 
-    juce::ApplicationProperties props;
-    juce::PropertiesFile::Options opts;
-    opts.applicationName    = "HEXSTACK";
-    opts.filenameSuffix     = "settings";
-    opts.osxLibrarySubFolder = "Application Support";
-    props.setStorageParameters(opts);
+    const auto xmlFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                             .getChildFile("HEXSTACK")
+                             .getChildFile("userHexPresets.xml");
 
-    if (auto* propsFile = props.getUserSettings())
+    if (! xmlFile.existsAsFile())
+        return;
+
+    const auto xml = juce::XmlDocument::parse(xmlFile);
+    if (xml == nullptr || ! xml->hasTagName("userHexPresets"))
+        return;
+
+    for (auto* entry : xml->getChildIterator())
     {
-        if (const auto xml = propsFile->getXmlValue("userHexPresets"))
-        {
-            for (auto* entry : xml->getChildIterator())
-            {
-                const auto entryName = entry->getStringAttribute("name");
-                const auto path      = entry->getStringAttribute("path");
-                // Only include entries where the file still exists on disk.
-                if (entryName.isNotEmpty() && juce::File(path).existsAsFile())
-                    userHexPresets.push_back({ entryName, juce::File(path) });
-            }
-        }
+        const auto entryName = entry->getStringAttribute("name");
+        const auto path      = entry->getStringAttribute("path");
+        if (entryName.isNotEmpty() && juce::File(path).existsAsFile())
+            userHexPresets.push_back({ entryName, juce::File(path) });
     }
 }
 
 void HexstackAudioProcessorEditor::saveUserHexList()
 {
-    juce::ApplicationProperties props;
-    juce::PropertiesFile::Options opts;
-    opts.applicationName    = "HEXSTACK";
-    opts.filenameSuffix     = "settings";
-    opts.osxLibrarySubFolder = "Application Support";
-    props.setStorageParameters(opts);
+    const auto xmlDir  = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                             .getChildFile("HEXSTACK");
+    const auto xmlFile = xmlDir.getChildFile("userHexPresets.xml");
 
-    if (auto* propsFile = props.getUserSettings())
+    if (! xmlDir.isDirectory())
+        xmlDir.createDirectory();
+
+    juce::XmlElement xml("userHexPresets");
+    for (const auto& entry : userHexPresets)
     {
-        juce::XmlElement xml("userHexPresets");
-        for (const auto& entry : userHexPresets)
-        {
-            auto* child = xml.createNewChildElement("preset");
-            child->setAttribute("name", entry.name);
-            child->setAttribute("path", entry.file.getFullPathName());
-        }
-        propsFile->setValue("userHexPresets", &xml);
-        propsFile->saveIfNeeded();
+        auto* child = xml.createNewChildElement("preset");
+        child->setAttribute("name", entry.name);
+        child->setAttribute("path", entry.file.getFullPathName());
     }
+    xml.writeTo(xmlFile);
 }

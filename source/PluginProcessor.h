@@ -155,6 +155,10 @@ private:
     int tunerLastMidiNote { -1 };
     int tunerStableFrames { 0 };
     int tunerSilenceFrames { 0 };
+    int   tunerCommittedMidiNote   { -1 };  // last note confirmed for >= 3 frames
+    float tunerRawFreqHistory[5]   {};      // circular buffer for median filter
+    int   tunerRawFreqHistoryPos   { 0 };
+    int   tunerRawFreqHistoryCount { 0 };
 
     std::atomic<float> tunerFrequencyHz { 0.0f };
     std::atomic<float> tunerCentsOffset { 0.0f };

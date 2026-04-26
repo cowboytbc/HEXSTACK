@@ -946,6 +946,10 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     stfuGain.fill(1.0f);
     pickTransientState.fill(0.0f);
     pitchChorusPhase = 0.0f;
+    tunerCommittedMidiNote = -1;
+    std::fill(std::begin(tunerRawFreqHistory), std::end(tunerRawFreqHistory), 0.0f);
+    tunerRawFreqHistoryPos   = 0;
+    tunerRawFreqHistoryCount = 0;
     // 50 ms fade-in — covers JUCE convolution crossfade time and any single-block
     // parameter-transition artifact that slips through before the flag is consumed.
     presetTransitionRampRemainingSamples = juce::jmax(0, juce::roundToInt(currentSampleRate * 0.050));
@@ -1044,6 +1048,10 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     tunerLastMidiNote = -1;
     tunerStableFrames = 0;
     tunerSilenceFrames = 0;
+    tunerCommittedMidiNote = -1;
+    std::fill(std::begin(tunerRawFreqHistory), std::end(tunerRawFreqHistory), 0.0f);
+    tunerRawFreqHistoryPos   = 0;
+    tunerRawFreqHistoryCount = 0;
 
     lastPrimaryMicParamIndex = -1;
     lastTunerReferenceIndex = -1;
@@ -2042,6 +2050,10 @@ void HexstackAudioProcessor::setTunerAnalysisEnabled(bool enabled)
     tunerLastMidiNote = -1;
     tunerStableFrames = 0;
     tunerSilenceFrames = 0;
+    tunerCommittedMidiNote = -1;
+    std::fill(std::begin(tunerRawFreqHistory), std::end(tunerRawFreqHistory), 0.0f);
+    tunerRawFreqHistoryPos   = 0;
+    tunerRawFreqHistoryCount = 0;
 
     tunerHasSignal.store(false);
     tunerFrequencyHz.store(0.0f);
@@ -2143,6 +2155,8 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
             tunerSmoothedFrequencyHz = 0.0f;
             tunerLastMidiNote = -1;
             tunerStableFrames = 0;
+            tunerCommittedMidiNote = -1;
+            tunerRawFreqHistoryCount = 0;
         }
 
         return;
@@ -2153,7 +2167,7 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     if (tunerCaptureValidSamples < static_cast<int>(tunerWindowBuffer.size()))
         return;
 
-    constexpr int tunerAnalysisHopSize = 2048;
+    constexpr int tunerAnalysisHopSize = 4096;  // ~93ms at 44.1kHz — stable, not hectic
     if (tunerSamplesSinceLastAnalysis < tunerAnalysisHopSize)
         return;
 
@@ -2209,18 +2223,30 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         return;
     }
 
+    // ── Median filter: push raw estimate into 5-slot circular buffer ──────────
+    // The autocorrelation occasionally produces a single wild outlier frame.
+    // Taking the median of the last 5 estimates eliminates those without
+    // slowing down lock-on time the way a moving average would.
+    tunerRawFreqHistory[tunerRawFreqHistoryPos] = frequency;
+    tunerRawFreqHistoryPos = (tunerRawFreqHistoryPos + 1) % 5;
+    if (tunerRawFreqHistoryCount < 5) ++tunerRawFreqHistoryCount;
+
+    float sorted[5];
+    std::copy(tunerRawFreqHistory, tunerRawFreqHistory + tunerRawFreqHistoryCount, sorted);
+    std::sort(sorted, sorted + tunerRawFreqHistoryCount);
+    const float medianFreq = sorted[tunerRawFreqHistoryCount / 2];
+
+    // ── Exponential smoothing on the median ────────────────────────────────────
     float smoothing = 1.0f;
     if (tunerSmoothedFrequencyHz > 0.0f)
     {
-        const float relativeDelta = std::abs(frequency - tunerSmoothedFrequencyHz)
+        const float relativeDelta = std::abs(medianFreq - tunerSmoothedFrequencyHz)
                                   / juce::jmax(1.0f, tunerSmoothedFrequencyHz);
-        // Reduced from 0.58/0.32 to 0.22/0.07 — much heavier smoothing eliminates jumpiness.
-        // Threshold raised from 0.015 to 0.025 to avoid flip-flopping between modes on small deviations.
         const float attack  = 0.22f;
         const float release = 0.07f;
         smoothing = (relativeDelta > 0.025f) ? attack : release;
     }
-    tunerSmoothedFrequencyHz = smoothing * frequency + (1.0f - smoothing) * tunerSmoothedFrequencyHz;
+    tunerSmoothedFrequencyHz = smoothing * medianFreq + (1.0f - smoothing) * tunerSmoothedFrequencyHz;
 
     const float referenceHz = getTunerReferenceHz();
     const float semitone = 69.0f + 12.0f * std::log2(tunerSmoothedFrequencyHz / referenceHz);
@@ -2234,9 +2260,15 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         tunerStableFrames = 1;
     }
 
-    // Require 3 consecutive frames on the same semitone before committing — prevents
-    // rapidly bouncing between adjacent notes while still locking on quickly.
-    const int midiNote = (tunerStableFrames >= 3) ? rawMidiNote : juce::jmax(rawMidiNote, 0);
+    // ── Committed note: only switch displayed note after 3 stable frames ──────
+    // This stops the note label from bouncing between adjacent semitones.
+    // Until a committed note exists, seed it so the display shows something.
+    if (tunerStableFrames >= 3)
+        tunerCommittedMidiNote = rawMidiNote;
+    else if (tunerCommittedMidiNote < 0)
+        tunerCommittedMidiNote = juce::jmax(rawMidiNote, 0);
+
+    const int midiNote = tunerCommittedMidiNote;
     const float cents = (semitone - static_cast<float>(midiNote)) * 100.0f;
 
     tunerHasSignal.store(true);
