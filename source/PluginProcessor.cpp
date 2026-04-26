@@ -352,6 +352,7 @@ namespace ParamIDs
     static constexpr auto fxReverbDamp = "fxReverbDamp";
     static constexpr auto fxReverbMix = "fxReverbMix";
     static constexpr auto fxReverbPreDelayMs = "fxReverbPreDelayMs";
+    static constexpr auto voicing = "voicing";  // 0 = Rhythm, 1 = Lead
     static constexpr auto lofi = "lofi";
     static constexpr auto lofiIntensity = "lofiIntensity";
     static constexpr auto stfu = "stfu";
@@ -670,6 +671,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
                                     defaultPreset.reverbPreDelayMs,
                                     juce::AudioParameterFloatAttributes().withLabel("ms")));
 
+    layout.push_back(std::make_unique<juce::AudioParameterBool>(ParamIDs::voicing,
+                                                                 "Voicing",
+                                                                 false));  // false = Rhythm, true = Lead
+
     layout.push_back(std::make_unique<juce::AudioParameterBool>(ParamIDs::lofi,
                                                                  "LOFI",
                                                                  false));
@@ -770,6 +775,7 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
     setBoolParam(ParamIDs::fxPower3, preset.overdriveOn);
     setBoolParam(ParamIDs::fxPower4, preset.reverbOn);
     setBoolParam(ParamIDs::fxPower5, preset.delayOn);
+    setBoolParam(ParamIDs::voicing, false);  // default to Rhythm
     setBoolParam(ParamIDs::lofi, false);
     setFloatParam(ParamIDs::stfu, preset.gate);
     setFloatParam(ParamIDs::lofiIntensity, 0.0f);
@@ -1099,18 +1105,16 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     if (pitchOn)
         processPitchEffect(buffer, pitchShift, pitchMix, pitchWidth);
 
-    const bool presetIsLead = currentProgramIndex == 2;
-    const bool presetIsGrind = currentProgramIndex == 3;
-    const bool presetIsAtmos = currentProgramIndex == 4;
-    const bool presetIsRhythm = currentProgramIndex == 0 || currentProgramIndex == 1;
+    const bool presetIsLead   = getParameterValue(ParamIDs::voicing, 0.0f) >= 0.5f;
+    const bool presetIsRhythm = !presetIsLead;
     const float rhythmBias = presetIsRhythm ? 1.0f : 0.0f;
-    const float leadBias = presetIsLead ? 1.0f : 0.0f;
-    const float grindBias = presetIsGrind ? 1.0f : 0.0f;
-    const float atmosBias = presetIsAtmos ? 1.0f : 0.0f;
+    const float leadBias   = presetIsLead   ? 1.0f : 0.0f;
+    const float grindBias  = 0.0f;  // retired
+    const float atmosBias  = 0.0f;  // retired
 
     const float inputGain = juce::Decibels::decibelsToGain(inputDb);
     const float outputGain = juce::Decibels::decibelsToGain(masterDb);
-    const bool modernHighGainVoicing = overdriveOn || gain >= 0.58f || presetIsRhythm || presetIsGrind || presetIsLead || presetIsAtmos;
+    const bool modernHighGainVoicing = overdriveOn || gain >= 0.58f || presetIsRhythm || presetIsLead;
     const float ampFrontEndBoostDb = juce::jmap(gain,
                                                 modernHighGainVoicing ? (4.0f + 0.8f * rhythmBias + 0.5f * grindBias - 0.3f * leadBias) : 0.6f,
                                                 modernHighGainVoicing ? (10.0f + 1.4f * rhythmBias + 0.8f * grindBias - 0.5f * leadBias) : 3.0f);

@@ -47,6 +47,7 @@ namespace ParamIDs
     static constexpr auto fxReverbDamp = "fxReverbDamp";
     static constexpr auto fxReverbMix = "fxReverbMix";
     static constexpr auto fxReverbPreDelayMs = "fxReverbPreDelayMs";
+    static constexpr auto voicing = "voicing";
     static constexpr auto lofi = "lofi";
     static constexpr auto lofiIntensity = "lofiIntensity";
     static constexpr auto stfu = "stfu";
@@ -386,6 +387,14 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
         juce::URL("https://myinferno.online/").launchInDefaultBrowser();
     };
     addAndMakeVisible(helpButton);
+
+    voicingButton.setClickingTogglesState(true);
+    voicingButton.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
+    voicingButton.setColour(juce::TextButton::buttonOnColourId, engagedButtonColour);
+    voicingButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
+    voicingButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    voicingButton.setTooltip("Toggle amp voicing: dark (off) = Rhythm, lit (on) = Lead.");
+    addAndMakeVisible(voicingButton);
 
     lofiButton.setClickingTogglesState(true);
     lofiButton.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
@@ -802,6 +811,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     fxReverbPredelayAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxReverbPreDelayMs, fxReverbPredelaySlider);
     tunerRefAttachment = std::make_unique<ComboBoxAttachment>(state, ParamIDs::tunerReference, tunerRefCombo);
     tunerRangeAttachment = std::make_unique<ComboBoxAttachment>(state, ParamIDs::tunerRange, tunerRangeCombo);
+    voicingAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::voicing, voicingButton);
     lofiAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::lofi, lofiButton);
     postEqEnableAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::postEqEnabled, postEqEnableButton);
     lofiIntensityAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::lofiIntensity, lofiIntensityKnob);
@@ -1474,6 +1484,14 @@ void HexstackAudioProcessorEditor::resized()
         auto postEqRow = ampArea.removeFromTop(S(34));
         ampArea.removeFromTop(S(4));
 
+        // Voicing toggle — right-aligned in the postEqRow strip
+        {
+            const int voicingW = S(80);
+            voicingButton.setBounds(postEqRow.getRight() - voicingW,
+                                    postEqRow.getY() + (postEqRow.getHeight() - S(24)) / 2,
+                                    voicingW, S(24));
+        }
+
         auto ampPreviewArea = visualAreaBelowTabs.toFloat().withTrimmedTop(visualAreaBelowTabs.getHeight() * 0.12f)
                                                   .withTrimmedLeft(visualAreaBelowTabs.getWidth() * 0.50f)
                                                   .withTrimmedBottom(visualAreaBelowTabs.getHeight() * 0.02f)
@@ -1765,7 +1783,7 @@ void HexstackAudioProcessorEditor::updateTabVisibility()
     juce::Component* ampControls[] = {
         &inputSlider, &driveSlider, &toneSlider, &micDistanceSlider, &micBlendSlider, &outputSlider, &depthSlider, &mixSlider,
         &inputLabel, &driveLabel, &toneLabel, &micDistanceLabel, &micBlendLabel, &outputLabel, &depthLabel, &mixLabel,
-        &loadIRButton, &clearIRButton, &saveHexButton, &loadHexButton, &lofiButton, &postEqEnableButton, &irStatusLabel,
+        &loadIRButton, &clearIRButton, &saveHexButton, &loadHexButton, &voicingButton, &lofiButton, &postEqEnableButton, &irStatusLabel,
         &cabLowCutSlider, &cabHighCutSlider, &cabLowCutLabel, &cabHighCutLabel
     };
 
