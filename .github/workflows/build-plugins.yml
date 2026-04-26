@@ -49,38 +49,51 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: Build
-        run: cmake --build build --config Release --target Hexstack_Standalone Hexstack_VST3 Hexstack_AU
+        run: cmake --build build --target Hexstack_Standalone Hexstack_VST3 Hexstack_AU
 
       - name: Collect macOS deliverables
         shell: bash
         run: |
           mkdir -p release/macos
-          cp -R build/Hexstack_artefacts/Release/Standalone/HEXSTACK.app release/macos/
-          cp -R build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3 release/macos/
-          cp -R build/Hexstack_artefacts/Release/AU/HEXSTACK.component release/macos/
+
+          standalone_path=$(find build -type d -path '*/Standalone/HEXSTACK.app' | head -n 1)
+          vst3_path=$(find build -type d -path '*/VST3/HEXSTACK.vst3' | head -n 1)
+          au_path=$(find build -type d -path '*/AU/HEXSTACK.component' | head -n 1)
+
+          echo "Standalone: ${standalone_path}"
+          echo "VST3: ${vst3_path}"
+          echo "AU: ${au_path}"
+
+          test -n "${standalone_path}" || { echo "Standalone app not found"; find build -maxdepth 5 | sort; exit 1; }
+          test -n "${vst3_path}" || { echo "VST3 bundle not found"; find build -maxdepth 5 | sort; exit 1; }
+          test -n "${au_path}" || { echo "AU component not found"; find build -maxdepth 5 | sort; exit 1; }
+
+          cp -R "${standalone_path}" release/macos/
+          cp -R "${vst3_path}" release/macos/
+          cp -R "${au_path}" release/macos/
 
       - name: Upload macOS Standalone
         uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-standalone
-          path: build/Hexstack_artefacts/Release/Standalone/HEXSTACK.app
+          path: release/macos/HEXSTACK.app
           if-no-files-found: error
 
       - name: Upload macOS VST3
         uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-vst3
-          path: build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3
+          path: release/macos/HEXSTACK.vst3
           if-no-files-found: error
 
       - name: Upload macOS AU
         uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-au
-          path: build/Hexstack_artefacts/Release/AU/HEXSTACK.component
+          path: release/macos/HEXSTACK.component
           if-no-files-found: error
 
       - name: Upload macOS bundle
