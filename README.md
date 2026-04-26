@@ -33,6 +33,16 @@ A JUCE-based amplifier plugin starter project with:
 
 After build, the VST3 plugin is generated in your build output under `Hexstack_artefacts`.
 
+## CI and release automation
+
+- `.github/workflows/build-plugins.yml` runs regular Windows + macOS CI builds.
+- `.github/workflows/release.yml` packages Windows and macOS release zips and can publish them to GitHub Releases.
+- Manual release path: run **Release HEXSTACK** from the Actions tab and provide a tag like `v0.2.0`.
+- Tag-driven release path: push a tag like `v0.2.0` and the workflow will package both platforms automatically.
+- macOS signing/notarization is optional; the release workflow still succeeds without Apple secrets, but the resulting macOS bundles will be unsigned and/or unnotarized.
+
+See `docs/RELEASE_PIPELINE.md` for the exact release secrets and workflow behavior.
+
 ## Load in your DAW
 
 1. Point your DAW's VST3 scan path to the built `.vst3` location (if not in your global VST3 folder).

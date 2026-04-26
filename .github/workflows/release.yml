@@ -1,0 +1,269 @@
+name: Release HEXSTACK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update (example: v0.2.0)"
+        required: true
+        type: string
+      create_release:
+        description: Create or update a GitHub release and upload the packaged bundles
+        required: true
+        default: true
+        type: boolean
+      notarize_macos:
+        description: Sign and notarize macOS bundles when Apple secrets are configured
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  PRODUCT_NAME: HEXSTACK
+
+jobs:
+  build-windows:
+    name: Package Windows release
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch')
+          {
+              $tag = '${{ inputs.tag }}'
+          }
+          else
+          {
+              $tag = '${{ github.ref_name }}'
+          }
+
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build --config Release --target Hexstack_Standalone Hexstack_VST3
+
+      - name: Package Windows bundles
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $PWD 'release'
+          $bundleRoot = Join-Path $releaseRoot 'windows'
+          $zipPath = Join-Path $releaseRoot ("HEXSTACK-windows-$env:RELEASE_TAG.zip")
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot 'Standalone') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot 'VST3') | Out-Null
+
+          $standaloneSource = Join-Path $PWD 'build\Hexstack_artefacts\Release\Standalone\HEXSTACK.exe'
+          $vst3Source = Join-Path $PWD 'build\Hexstack_artefacts\Release\VST3\HEXSTACK.vst3'
+
+          if (!(Test-Path $standaloneSource))
+          {
+              throw "Standalone executable not found at $standaloneSource"
+          }
+
+          if (!(Test-Path $vst3Source))
+          {
+              throw "VST3 bundle not found at $vst3Source"
+          }
+
+          Copy-Item -Force $standaloneSource (Join-Path $bundleRoot 'Standalone\HEXSTACK.exe')
+          Copy-Item -Recurse -Force $vst3Source (Join-Path $bundleRoot 'VST3\HEXSTACK.vst3')
+
+          if (Test-Path $zipPath)
+          {
+              Remove-Item -Force $zipPath
+          }
+
+          Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+
+      - name: Upload Windows release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: HEXSTACK-windows-release
+          path: release/HEXSTACK-windows-*.zip
+          if-no-files-found: error
+
+  build-macos:
+    name: Package macOS release
+    runs-on: macos-15
+    env:
+      APPLE_DEV_ID_APP_CERT_P12_BASE64: ${{ secrets.APPLE_DEV_ID_APP_CERT_P12_BASE64 }}
+      APPLE_DEV_ID_APP_CERT_PASSWORD: ${{ secrets.APPLE_DEV_ID_APP_CERT_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+
+          echo "RELEASE_TAG=${tag}" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --target Hexstack_Standalone Hexstack_VST3 Hexstack_AU
+
+      - name: Collect macOS deliverables
+        shell: bash
+        run: |
+          mkdir -p release/macos
+
+          standalone_path=$(find build -type d -path '*/Standalone/HEXSTACK.app' | head -n 1)
+          vst3_path=$(find build -type d -path '*/VST3/HEXSTACK.vst3' | head -n 1)
+          au_path=$(find build -type d -path '*/AU/HEXSTACK.component' | head -n 1)
+
+          echo "Standalone: ${standalone_path}"
+          echo "VST3: ${vst3_path}"
+          echo "AU: ${au_path}"
+
+          test -n "${standalone_path}" || { echo "Standalone app not found"; find build -maxdepth 5 | sort; exit 1; }
+          test -n "${vst3_path}" || { echo "VST3 bundle not found"; find build -maxdepth 5 | sort; exit 1; }
+          test -n "${au_path}" || { echo "AU component not found"; find build -maxdepth 5 | sort; exit 1; }
+
+          cp -R "${standalone_path}" release/macos/
+          cp -R "${vst3_path}" release/macos/
+          cp -R "${au_path}" release/macos/
+
+      - name: Report signing mode
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.APPLE_DEV_ID_APP_CERT_P12_BASE64 }}" ] && [ -n "${{ secrets.APPLE_DEV_ID_APP_CERT_PASSWORD }}" ]; then
+            echo "Developer ID certificate secrets detected. macOS bundles can be signed."
+          else
+            echo "Developer ID certificate secrets not configured. macOS bundles will be packaged unsigned."
+          fi
+
+      - name: Import Developer ID certificate
+        if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != ''
+        shell: bash
+        run: |
+          CERT_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/hexstack-signing.keychain-db"
+          KEYCHAIN_PASSWORD="hexstack-temporary-keychain"
+
+          echo "$APPLE_DEV_ID_APP_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_DEV_ID_APP_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CODE_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F '"' '/Developer ID Application/ { print $2; exit }')
+          test -n "$CODE_SIGN_IDENTITY" || { echo "No Developer ID Application identity found"; security find-identity -v -p codesigning "$KEYCHAIN_PATH"; exit 1; }
+
+          echo "CODE_SIGN_IDENTITY=$CODE_SIGN_IDENTITY" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Sign macOS bundles
+        if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != ''
+        shell: bash
+        run: |
+          for bundle in release/macos/HEXSTACK.app release/macos/HEXSTACK.vst3 release/macos/HEXSTACK.component; do
+            xattr -cr "$bundle"
+            chmod -R u+w "$bundle"
+            codesign --force --deep --options runtime --timestamp --sign "$CODE_SIGN_IDENTITY" "$bundle"
+            codesign --verify --verbose=2 "$bundle"
+          done
+
+      - name: Notarize and staple macOS bundles
+        if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
+        shell: bash
+        run: |
+          NOTARY_PROFILE="hexstack-notary-profile"
+          NOTARY_ZIP="$RUNNER_TEMP/HEXSTACK-macos-notary.zip"
+
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+          ditto -c -k --keepParent release/macos "$NOTARY_ZIP"
+          xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+
+          xcrun stapler staple release/macos/HEXSTACK.app
+          xcrun stapler staple release/macos/HEXSTACK.vst3
+          xcrun stapler staple release/macos/HEXSTACK.component
+
+      - name: Package macOS bundles
+        shell: bash
+        run: |
+          zip_path="release/HEXSTACK-macos-${RELEASE_TAG}.zip"
+          rm -f "$zip_path"
+          ditto -c -k --keepParent release/macos "$zip_path"
+
+      - name: Upload macOS release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: HEXSTACK-macos-release
+          path: release/HEXSTACK-macos-*.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    needs:
+      - build-windows
+      - build-macos
+    if: ${{ github.event_name == 'push' || inputs.create_release }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download packaged release bundles
+        uses: actions/download-artifact@v5
+        with:
+          pattern: HEXSTACK-*-release
+          path: release-assets
+          merge-multiple: true
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          ls -la release-assets
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists. Uploading refreshed assets."
+          else
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+          fi
+
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber

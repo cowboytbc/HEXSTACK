@@ -36,6 +36,11 @@
 ## Release Packaging
 - [ ] Version metadata set to `0.2.0`
 - [ ] Product name: `HEXSTACK`
-- [ ] Bundle ID: `com.infernoaudio.hexstack`
+- [ ] Bundle ID: `com.infernotones.hexstack`
 - [ ] Plugin code: `HxSk`
 - [ ] README reflects final behavior
+- [ ] GitHub Actions `Build HEXSTACK Plugins` run passes on Windows + macOS
+- [ ] GitHub Actions `Release HEXSTACK` run produces Windows + macOS zip bundles
+- [ ] If a workflow fails, inspect the failing job logs in the GitHub Actions tab before shipping
+- [ ] GitHub release tag and uploaded assets match the intended version
+- [ ] Apple signing/notarization secrets verified or consciously skipped for test builds
