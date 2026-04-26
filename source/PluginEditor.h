@@ -102,7 +102,7 @@ private:
 
     void loadUserHexList();
     void saveUserHexList();
-    void rebuildPresetCombo();
+    void rebuildPresetCombo(int targetSelectedId = 0);
     void addOrRefreshUserHexEntry(const juce::String& name, const juce::File& file);
     // ─────────────────────────────────────────────────────────────────────────
 

@@ -2096,10 +2096,11 @@ void HexstackAudioProcessorEditor::setFxPowerParameterValue(size_t index, bool e
 
 // ── User hex preset history ───────────────────────────────────────────────────
 
-void HexstackAudioProcessorEditor::rebuildPresetCombo()
+void HexstackAudioProcessorEditor::rebuildPresetCombo(int targetSelectedId)
 {
-    // Preserve current selection so we can restore it after clearing.
-    const int prevId = presetCombo.getSelectedId();
+    // If a target is given, use it; otherwise preserve the current selection.
+    const int idToSelect = (targetSelectedId > 0) ? targetSelectedId
+                                                   : presetCombo.getSelectedId();
 
     presetCombo.clear(juce::dontSendNotification);
 
@@ -2114,9 +2115,9 @@ void HexstackAudioProcessorEditor::rebuildPresetCombo()
                                 numBuiltInPresets + i + 1);
     }
 
-    // Restore previous selection without triggering onChange.
-    if (prevId > 0)
-        presetCombo.setSelectedId(prevId, juce::dontSendNotification);
+    // Set the final selection once — no intermediate state, no deferred-paint race.
+    if (idToSelect > 0)
+        presetCombo.setSelectedId(idToSelect, juce::dontSendNotification);
 }
 
 void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& name,
@@ -2129,9 +2130,7 @@ void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& 
         {
             userHexPresets[static_cast<size_t>(i)].name = name;
             activeUserHexIndex = i;
-            rebuildPresetCombo();  // UI first — persistence is best-effort
-            presetCombo.setSelectedId(numBuiltInPresets + i + 1, juce::dontSendNotification);
-            presetCombo.repaint();
+            rebuildPresetCombo(numBuiltInPresets + i + 1);
             saveUserHexList();
             return;
         }
@@ -2145,10 +2144,7 @@ void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& 
     userHexPresets.push_back({ name, file });
     activeUserHexIndex = static_cast<int>(userHexPresets.size()) - 1;
 
-    rebuildPresetCombo();  // UI first — persistence is best-effort
-    presetCombo.setSelectedId(numBuiltInPresets + activeUserHexIndex + 1,
-                               juce::dontSendNotification);
-    presetCombo.repaint();
+    rebuildPresetCombo(numBuiltInPresets + activeUserHexIndex + 1);
     saveUserHexList();
 }
 
