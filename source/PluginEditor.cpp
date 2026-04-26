@@ -363,13 +363,10 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
                 return;
             }
 
-            // Read the preset name stored inside the .hex XML so the combo
-            // shows a meaningful name rather than the bare filename.
-            juce::String presetName;
-            if (const auto xml = juce::XmlDocument::parse(file))
-                presetName = xml->getStringAttribute("presetName");
-            if (presetName.isEmpty())
-                presetName = file.getFileNameWithoutExtension();
+            // Always derive the display name from the filename — the embedded
+            // presetName XML attribute was historically saved as "Default" so
+            // it cannot be trusted.
+            const juce::String presetName = file.getFileNameWithoutExtension();
 
             safeThis->addOrRefreshUserHexEntry(presetName, file);
             safeThis->refreshIRStatus();
