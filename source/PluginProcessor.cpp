@@ -861,6 +861,7 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     lofiHeldSample.fill(0.0f);
     stfuEnvelope.fill(0.0f);
     stfuGain.fill(1.0f);
+    stfuHoldCounter.fill(0);
     pickTransientState.fill(0.0f);
     pitchChorusPhase = 0.0f;
     tunerCommittedMidiNote = -1;
@@ -952,6 +953,7 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     lofiHeldSample.fill(0.0f);
     stfuEnvelope.fill(0.0f);
     stfuGain.fill(1.0f);
+    stfuHoldCounter.fill(0);
     pickTransientState.fill(0.0f);
 
     constexpr int tunerCaptureSize = 8192;
@@ -1148,11 +1150,20 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     // STFU noise suppressor — downward expander on the input (gates noise before amp distorts it)
     if (stfuKnobVal > 0.005f)
     {
-        const float thresholdDb = -70.0f + stfuKnobVal * 50.0f + 1.5f * rhythmBias + 0.5f * grindBias - 2.0f * leadBias - 1.5f * atmosBias;  // knob 0→-70dB, 1→-20dB
+        const float thresholdDb = -70.0f + stfuKnobVal * 55.0f + 1.5f * rhythmBias + 0.5f * grindBias - 2.0f * leadBias - 1.5f * atmosBias;  // knob 0→-70dB, 1→-15dB
         const float threshold   = juce::Decibels::decibelsToGain(thresholdDb);
         const float envWindowSeconds = 0.0048f - 0.0008f * rhythmBias + 0.0004f * grindBias + 0.0008f * leadBias + 0.0008f * atmosBias;
         const float attackSeconds = 0.0016f - 0.0003f * rhythmBias + 0.0001f * grindBias + 0.0002f * leadBias;
-        const float releaseSeconds = 0.110f - 0.010f * rhythmBias + 0.015f * grindBias + 0.080f * leadBias + 0.060f * atmosBias;
+        // Longer release so the natural chug tail rings out before the gate closes.
+        const float releaseSeconds = 0.250f + 0.015f * grindBias + 0.080f * leadBias + 0.060f * atmosBias;
+        // Hold: keep gate fully open after each note so the pick attack decays
+        // naturally before the gate starts to close.  Without hold, the expansion
+        // curve acts on the mid-decay signal and produces a high-freq "squeak".
+        const float holdSeconds = 0.080f + 0.010f * grindBias + 0.010f * leadBias;
+        const int   holdSamples = juce::roundToInt(holdSeconds * static_cast<float>(currentSampleRate));
+        // Expansion power scales with knob: soft (r^2) at min → very hard (r^6) at max.
+        // At full gate, r^6 at 50% threshold = -48 dB; impossible for amp gain to undo.
+        const float expansionPow = 2.0f + 4.0f * stfuKnobVal;
         const float envCoeff    = std::exp(-1.0f / (envWindowSeconds * static_cast<float>(currentSampleRate)));
         const float attackCoeff = std::exp(-1.0f / (attackSeconds * static_cast<float>(currentSampleRate)));
         const float releaseCoeff= std::exp(-1.0f / (releaseSeconds * static_cast<float>(currentSampleRate)));
@@ -1169,12 +1180,22 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
                 float targetGain;
                 if (stfuEnvelope[ch] >= threshold)
                 {
+                    // Above threshold: open gate and reset hold timer.
                     targetGain = 1.0f;
+                    stfuHoldCounter[ch] = holdSamples;
+                }
+                else if (stfuHoldCounter[ch] > 0)
+                {
+                    // Hold phase: envelope just dipped below threshold but we wait
+                    // before releasing so the natural note tail rings out cleanly.
+                    targetGain = 1.0f;
+                    --stfuHoldCounter[ch];
                 }
                 else
                 {
+                    // Release phase: apply steep downward expansion.
                     const float r = stfuEnvelope[ch] / juce::jmax(1e-9f, threshold);
-                    targetGain = r * r;  // 2:1 soft downward expansion
+                    targetGain = std::pow(r, expansionPow);
                 }
 
                 const float coeff = (targetGain > stfuGain[ch]) ? attackCoeff : releaseCoeff;
@@ -2374,7 +2395,44 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
     if (stateXml == nullptr)
         return false;
 
-    const auto stateTree = juce::ValueTree::fromXml(*stateXml);
+    auto stateTree = juce::ValueTree::fromXml(*stateXml);
+
+    // If the preset references a 3rd-party cab, resolve the path relative to the
+    // .hex file's folder before loading.  This lets preset authors ship their cab
+    // alongside the .hex and have it load on any machine regardless of the absolute
+    // path that was baked in when the preset was saved.
+    const auto irSource = stateTree.getProperty(StateKeys::irSource).toString();
+    if (irSource == "file")
+    {
+        const juce::File savedIR(stateTree.getProperty(StateKeys::irPath).toString());
+        if (! savedIR.existsAsFile())
+        {
+            // Try relative: cab with the same filename in the same folder as the .hex
+            const juce::File relativeIR = file.getParentDirectory()
+                                              .getChildFile(savedIR.getFileName());
+            if (relativeIR.existsAsFile())
+            {
+                // Redirect to the found cab
+                stateTree.setProperty(StateKeys::irPath, relativeIR.getFullPathName(), nullptr);
+            }
+            else
+            {
+                // Cab is genuinely missing — show a clear error instead of silently
+                // falling back to the built-in and confusing the user's tone.
+                juce::MessageManager::callAsync([cabName = savedIR.getFileName()]
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Missing Cabinet IR",
+                        "The preset requires the cab file:\n\n  " + cabName
+                            + "\n\nPlace the cab file in the same folder as the .hex preset and reload it.",
+                        "OK");
+                });
+                return false;
+            }
+        }
+    }
+
     const bool ok = applyLoadedStateTree(stateTree);
 
     // Override the hex file path with the actual file being loaded (old .hex files

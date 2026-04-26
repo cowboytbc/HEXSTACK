@@ -133,6 +133,7 @@ private:
     std::array<float, 2> lofiHeldSample { 0.0f, 0.0f };
     std::array<float, 2> stfuEnvelope { 0.0f, 0.0f };
     std::array<float, 2> stfuGain { 1.0f, 1.0f };
+    std::array<int, 2>   stfuHoldCounter { 0, 0 };  // per-channel hold-open sample counter
     std::array<float, 2> pickTransientState { 0.0f, 0.0f };
 
     juce::String currentIRName { "HEXSTACK OS V30 4X12 (SM57)" };
