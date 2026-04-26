@@ -1,0 +1,88 @@
+name: Build HEXSTACK Plugins
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'CMakeLists.txt'
+      - 'source/**'
+      - '.github/workflows/build-plugins.yml'
+
+jobs:
+  build-windows:
+    name: Windows VST3 + Standalone
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build --config Release --target Hexstack_Standalone Hexstack_VST3
+
+      - name: Upload Windows Standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-windows-standalone
+          path: build/Hexstack_artefacts/Release/Standalone/HEXSTACK.exe
+          if-no-files-found: error
+
+      - name: Upload Windows VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-windows-vst3
+          path: build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3
+          if-no-files-found: error
+
+  build-macos:
+    name: macOS AU + VST3 + Standalone
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --target Hexstack_Standalone Hexstack_VST3 Hexstack_AU
+
+      - name: Collect macOS deliverables
+        shell: bash
+        run: |
+          mkdir -p release/macos
+          cp -R build/Hexstack_artefacts/Release/Standalone/HEXSTACK.app release/macos/
+          cp -R build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3 release/macos/
+          cp -R build/Hexstack_artefacts/Release/AU/HEXSTACK.component release/macos/
+
+      - name: Upload macOS Standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-macos-standalone
+          path: build/Hexstack_artefacts/Release/Standalone/HEXSTACK.app
+          if-no-files-found: error
+
+      - name: Upload macOS VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-macos-vst3
+          path: build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3
+          if-no-files-found: error
+
+      - name: Upload macOS AU
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-macos-au
+          path: build/Hexstack_artefacts/Release/AU/HEXSTACK.component
+          if-no-files-found: error
+
+      - name: Upload macOS bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-macos-bundle
+          path: release/macos
+          if-no-files-found: error

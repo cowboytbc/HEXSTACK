@@ -1,0 +1,15 @@
+build/
+build-verify.log
+.vs/
+.vscode/*.log
+DELIVERABLES/
+RELEASES/
+*.user
+*.VC.db
+*.opensdf
+*.sdf
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
