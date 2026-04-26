@@ -442,110 +442,23 @@ namespace PresetData
         std::array<float, 10> postEq;
     };
 
-    static const std::array<Preset, 5> presets {
-        Preset { "Modern Rhythm", 2.0f, 0.68f, 0.6f, 0.2f, 2.1f, 1.3f, 0.42f, -10.7f,
-                 false, false, true, false, false,
-                 0.38f,
+    static const std::array<Preset, 1> presets {
+        Preset { "Default", 0.0f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
+                 false, false, false, false, false,
+                 0.63f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
-                 360.0f, 0.16f, 0.24f, 0.0f, 0.08f,
-                 0.16f, 0.72f, 0.0f, 8.0f,
-                 { -5.0f, -3.0f, -1.4f, -2.4f, -1.1f, 0.2f, 1.7f, 1.0f, -1.4f, -4.8f } },
-        Preset { "Deathcore Drop", 3.0f, 0.76f, 1.2f, -1.4f, 3.0f, 1.1f, 0.34f, -11.8f,
-                 false, false, true, false, false,
-                 0.52f,
-                 0.10f, 0.40f, 7.1f, 1.0f, 1.0f,
-                 340.0f, 0.14f, 0.22f, 0.0f, 0.06f,
-                 0.12f, 0.74f, 0.0f, 8.0f,
-             { -6.0f, -3.4f, -1.6f, -2.4f, -1.2f, 0.6f, 1.8f, 1.4f, -0.8f, -4.0f } },
-        Preset { "Surgical Lead", 2.5f, 0.70f, 0.8f, 2.8f, 2.2f, 2.5f, 0.58f, -10.8f,
-                 false, false, true, true, true,
-                 0.24f,
-                 0.16f, 0.48f, 5.6f, 0.92f, 0.88f,
-                 430.0f, 0.20f, 0.34f, 0.13f, 0.16f,
-                 0.24f, 0.66f, 0.10f, 14.0f,
-                 { -4.5f, -1.8f, -0.4f, -0.8f, 0.8f, 1.9f, 2.4f, 1.0f, -0.4f, -3.8f } },
-        Preset { "Blackened Grind", 1.8f, 0.79f, -0.2f, 3.2f, 2.6f, 1.1f, 0.24f, -11.7f,
-                 false, false, true, false, false,
-             0.46f,
-             0.18f, 0.50f, 5.2f, 0.97f, 0.92f,
-                 330.0f, 0.12f, 0.24f, 0.0f, 0.10f,
-                 0.14f, 0.70f, 0.0f, 8.0f,
-             { -5.6f, -2.0f, -0.3f, -1.3f, 1.0f, 2.4f, 2.8f, 0.8f, -1.2f, -4.4f } },
-        Preset { "Dissonant Atmos", 2.1f, 0.64f, 0.9f, 1.4f, 2.0f, 1.0f, 0.66f, -11.9f,
-                 false, false, true, true, true,
-                 0.28f,
-                 0.14f, 0.46f, 5.4f, 0.90f, 0.84f,
-                 500.0f, 0.24f, 0.32f, 0.12f, 0.30f,
-                 0.34f, 0.62f, 0.08f, 16.0f,
-                 { -4.2f, -2.2f, -0.8f, -1.0f, 0.2f, 1.4f, 2.0f, 1.0f, -0.2f, -3.2f } }
+                 360.0f, 0.16f, 0.24f, 0.18f, 0.08f,
+                 0.16f, 0.72f, 0.18f, 8.0f,
+                 { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } }
     };
 }
 
 namespace
 {
-    int inferProgramIndexFromState(const juce::ValueTree& tree)
+    int inferProgramIndexFromState(const juce::ValueTree& /*tree*/)
     {
-        const auto getFloat = [&tree](const juce::Identifier& id, float fallback)
-        {
-            const auto value = tree.getProperty(id);
-            return value.isVoid() ? fallback : static_cast<float>(value);
-        };
-
-        const auto getBool = [&tree](const juce::Identifier& id, bool fallback)
-        {
-            const auto value = tree.getProperty(id);
-            return value.isVoid() ? fallback : static_cast<bool>(value);
-        };
-
-        int bestIndex = 0;
-        float bestScore = std::numeric_limits<float>::max();
-
-        for (size_t i = 0; i < PresetData::presets.size(); ++i)
-        {
-            const auto& preset = PresetData::presets[i];
-
-            float score = 0.0f;
-            score += std::abs(getFloat(ParamIDs::input, preset.input) - preset.input);
-            score += std::abs(getFloat(ParamIDs::gain, preset.gain) - preset.gain) * 10.0f;
-            score += std::abs(getFloat(ParamIDs::bass, preset.bass) - preset.bass) * 0.6f;
-            score += std::abs(getFloat(ParamIDs::mids, preset.mids) - preset.mids) * 0.6f;
-            score += std::abs(getFloat(ParamIDs::treble, preset.treble) - preset.treble) * 0.6f;
-            score += std::abs(getFloat(ParamIDs::presence, preset.presence) - preset.presence) * 0.6f;
-            score += std::abs(getFloat(ParamIDs::depth, preset.depth) - preset.depth) * 8.0f;
-            score += std::abs(getFloat(ParamIDs::master, preset.master) - preset.master) * 0.3f;
-            score += std::abs(getFloat(ParamIDs::stfu, preset.gate) - preset.gate) * 8.0f;
-            score += std::abs(getFloat(ParamIDs::fxDriveAmount, preset.driveAmount) - preset.driveAmount) * 8.0f;
-            score += std::abs(getFloat(ParamIDs::fxDriveTone, preset.driveTone) - preset.driveTone) * 8.0f;
-            score += std::abs(getFloat(ParamIDs::fxDriveLevel, preset.driveLevel) - preset.driveLevel) * 0.5f;
-            score += std::abs(getFloat(ParamIDs::fxDriveMix, preset.driveMix) - preset.driveMix) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxDriveTight, preset.driveTight) - preset.driveTight) * 8.0f;
-            score += std::abs(getFloat(ParamIDs::fxDelayTimeMs, preset.delayTimeMs) - preset.delayTimeMs) * 0.01f;
-            score += std::abs(getFloat(ParamIDs::fxDelayFeedback, preset.delayFeedback) - preset.delayFeedback) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxDelayTone, preset.delayTone) - preset.delayTone) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxDelayMix, preset.delayMix) - preset.delayMix) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxDelayWidth, preset.delayWidth) - preset.delayWidth) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxReverbSize, preset.reverbSize) - preset.reverbSize) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxReverbDamp, preset.reverbDamp) - preset.reverbDamp) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxReverbMix, preset.reverbMix) - preset.reverbMix) * 6.0f;
-            score += std::abs(getFloat(ParamIDs::fxReverbPreDelayMs, preset.reverbPreDelayMs) - preset.reverbPreDelayMs) * 0.05f;
-
-            score += (getBool(ParamIDs::fxPower1, preset.pitchOn) == preset.pitchOn) ? 0.0f : 4.0f;
-            score += (getBool(ParamIDs::fxPower2, preset.wahOn) == preset.wahOn) ? 0.0f : 4.0f;
-            score += (getBool(ParamIDs::fxPower3, preset.overdriveOn) == preset.overdriveOn) ? 0.0f : 5.0f;
-            score += (getBool(ParamIDs::fxPower4, preset.reverbOn) == preset.reverbOn) ? 0.0f : 4.0f;
-            score += (getBool(ParamIDs::fxPower5, preset.delayOn) == preset.delayOn) ? 0.0f : 4.0f;
-
-            for (size_t band = 0; band < postEqParamIds.size(); ++band)
-                score += std::abs(getFloat(postEqParamIds[band], preset.postEq[band]) - preset.postEq[band]) * 0.2f;
-
-            if (score < bestScore)
-            {
-                bestScore = score;
-                bestIndex = static_cast<int>(i);
-            }
-        }
-
-        return bestIndex;
+        // Only one built-in preset exists; always index 0.
+        return 0;
     }
 }
 
@@ -849,8 +762,8 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
     setFloatParam(ParamIDs::presence, preset.presence);
     setFloatParam(ParamIDs::depth, preset.depth);
     setFloatParam(ParamIDs::master, preset.master);
-    setFloatParam(ParamIDs::cabLowCut, 20.0f);
-    setFloatParam(ParamIDs::cabHighCut, 20000.0f);
+    setFloatParam(ParamIDs::cabLowCut, 70.0f);
+    setFloatParam(ParamIDs::cabHighCut, 5000.0f);
     setBoolParam(ParamIDs::postEqEnabled, true);
     setBoolParam(ParamIDs::fxPower1, preset.pitchOn);
     setBoolParam(ParamIDs::fxPower2, preset.wahOn);
@@ -912,7 +825,11 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
         for (auto& filter : bandFilters)
             filter.reset();
 
-    primaryCabConvolution.reset();
+    // NOTE: primaryCabConvolution.reset() is intentionally omitted here.
+    // Calling reset() on the audio thread while JUCE's background IR-loading
+    // thread is mid-crossfade causes a race condition that produces the
+    // "toilet bowl" artifact.  The 50 ms fade-in ramp below already silences
+    // any transition transient, so the convolution can manage its own crossfade.
     reverb.reset();
 
     if (pitchBuffer.getNumSamples() > 0)
@@ -2495,7 +2412,12 @@ bool HexstackAudioProcessor::applyLoadedStateTree(const juce::ValueTree& tree)
     }
     else
     {
-        loadInfernoCabIR();
+        // Only trigger a full IR reload (which causes a JUCE convolution crossfade)
+        // when transitioning FROM a user file IR to the built-in cab.  If the
+        // built-in IR is already active there is nothing to reload and the
+        // unnecessary crossfade is the primary cause of the "toilet bowl" artifact.
+        if (currentIRFile.existsAsFile())
+            loadInfernoCabIR();
     }
 
     applyAutomatableControlState(true);
