@@ -2149,32 +2149,17 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         readIndex = (readIndex + 1) % captureSize;
     }
 
+    // DC removal only — YIN does not benefit from centre-clipping and the
+    // clipper's artificial harmonics actively hurt autocorrelation accuracy.
     float mean = 0.0f;
-    float maxAbs = 0.0f;
     for (float s : tunerWindowBuffer)
-    {
         mean += s;
-        maxAbs = juce::jmax(maxAbs, std::abs(s));
-    }
     mean /= static_cast<float>(windowSize);
 
-    const float clipThreshold = maxAbs * 0.35f;
     for (int i = 0; i < windowSize; ++i)
-    {
-        const float centered = tunerWindowBuffer[static_cast<size_t>(i)] - mean;
+        tunerWindowBuffer[static_cast<size_t>(i)] -= mean;
 
-        float clipped = 0.0f;
-        if (centered > clipThreshold)
-            clipped = centered - clipThreshold;
-        else if (centered < -clipThreshold)
-            clipped = centered + clipThreshold;
-
-        const float windowPos = static_cast<float>(i) / static_cast<float>(windowSize - 1);
-        const float hann = 0.5f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * windowPos);
-        tunerWindowBuffer[static_cast<size_t>(i)] = clipped * hann;
-    }
-
-    const float frequency = estimateFrequencyFromAutocorrelation(tunerWindowBuffer.data(), windowSize);
+    const float frequency = estimateFrequencyYIN(tunerWindowBuffer.data(), windowSize);
     if (frequency <= 0.0f)
     {
         if (++tunerSilenceFrames > 3)
@@ -2203,9 +2188,9 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     {
         const float relativeDelta = std::abs(medianFreq - tunerSmoothedFrequencyHz)
                                   / juce::jmax(1.0f, tunerSmoothedFrequencyHz);
-        const float attack  = 0.22f;
-        const float release = 0.07f;
-        smoothing = (relativeDelta > 0.025f) ? attack : release;
+        // Snap immediately when on a new note; gentle smoothing when settled
+        // so the cents needle tracks without jitter.
+        smoothing = (relativeDelta > 0.025f) ? 1.0f : 0.65f;
     }
     tunerSmoothedFrequencyHz = smoothing * medianFreq + (1.0f - smoothing) * tunerSmoothedFrequencyHz;
 
@@ -2238,109 +2223,123 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     tunerMidiNote.store(midiNote);
 }
 
-float HexstackAudioProcessor::estimateFrequencyFromAutocorrelation(const float* samples, int numSamples) const
+// ── YIN pitch estimator (de Cheveigné & Kawahara 2002) ──────────────────────
+// YIN uses a Cumulative Mean Normalized Difference Function (CMNDF) which makes
+// octave errors structurally impossible: the CMNDF minimum at lag=T (the true
+// period) is always deeper than the minimum at lag=T/2 (octave up).
+// This replaces the NSDF+MPM approach which failed when harmonics had higher
+// correlation than the fundamental (common on guitar with heavy picking).
+float HexstackAudioProcessor::estimateFrequencyYIN(const float* samples, int numSamples) const
 {
-    if (samples == nullptr || numSamples < 128 || currentSampleRate <= 0.0)
+    if (samples == nullptr || numSamples < 256 || currentSampleRate <= 0.0)
         return 0.0f;
 
-    float minFrequency = 27.5f;
-    float maxFrequency = 2000.0f;
-
+    float minFrequency, maxFrequency;
     switch (getTunerRangeMode())
     {
         case TunerRangeMode::bass:
-            minFrequency = 25.0f;   // covers all standard bass tunings incl. low B
+            minFrequency = 25.0f;
             maxFrequency = 420.0f;
             break;
         case TunerRangeMode::guitar:
-            minFrequency = 30.0f;   // covers drop A / drop B / drop C open strings
+            minFrequency = 30.0f;
             maxFrequency = 1400.0f;
             break;
         case TunerRangeMode::wide:
         default:
-            minFrequency = 22.0f;   // below any standard instrument
+            minFrequency = 22.0f;
             maxFrequency = 2000.0f;
             break;
     }
 
-    const int minLag = juce::jlimit(2, numSamples / 2, static_cast<int>(currentSampleRate / maxFrequency));
-    const int maxLag = juce::jlimit(minLag + 1, numSamples - 2, static_cast<int>(currentSampleRate / minFrequency));
+    // W = half the buffer so samples[n+tau] is always in-bounds for n in [0,W)
+    const int W       = numSamples / 2;
+    const int minTau  = juce::jlimit(2, W - 1, static_cast<int>(currentSampleRate / maxFrequency));
+    const int maxTau  = juce::jlimit(minTau + 1, W - 1, static_cast<int>(currentSampleRate / minFrequency));
 
-    float mean = 0.0f;
-    for (int i = 0; i < numSamples; ++i)
-        mean += samples[i];
-    mean /= static_cast<float>(numSamples);
-
-    std::vector<float> correlation(static_cast<size_t>(maxLag + 1), 0.0f);
-    float bestCorrelation = std::numeric_limits<float>::lowest();
-    int bestLag = -1;
-
-    for (int lag = minLag; lag <= maxLag; ++lag)
+    // ── Step 2: difference function ─────────────────────────────────────────
+    // d(tau) = sum_{n=0}^{W-1} (x[n] - x[n+tau])^2
+    std::vector<float> d(static_cast<size_t>(maxTau + 1), 0.0f);
+    for (int tau = 1; tau <= maxTau; ++tau)
     {
-        float ac = 0.0f;
-        float energy = 0.0f;
-
-        for (int i = 0; i < numSamples - lag; ++i)
+        float sum = 0.0f;
+        for (int n = 0; n < W; ++n)
         {
-            const float x = samples[i] - mean;
-            const float y = samples[i + lag] - mean;
-            ac += x * y;
-            energy += x * x + y * y;
+            const float diff = samples[n] - samples[n + tau];
+            sum += diff * diff;
         }
-
-        const float norm = (energy > 1.0e-8f) ? (2.0f * ac / energy) : 0.0f;
-        correlation[static_cast<size_t>(lag)] = norm;
-
-        if (norm > bestCorrelation)
-        {
-            bestCorrelation = norm;
-            bestLag = lag;
-        }
+        d[static_cast<size_t>(tau)] = sum;
     }
 
-    // MPM-style peak picker: find the FIRST local maximum that is >= 0.82 * the
-    // global peak.  Walking from minLag (high freq) means we reject harmonic peaks
-    // whose correlation is weaker than the fundamental, and land on the fundamental.
-    // This eliminates octave errors caused by the old "first local max > 0.20" heuristic.
-    if (bestCorrelation < 0.20f)
-        return 0.0f;
-
-    const float mpmThreshold = 0.82f * bestCorrelation;
-    int mpmLag = -1;
-    for (int lag = minLag + 1; lag < maxLag; ++lag)
+    // ── Step 3: cumulative mean normalized difference (CMNDF) ────────────────
+    // d'(0) = 1
+    // d'(tau) = d(tau) * tau / sum_{j=1}^{tau} d(j)
+    std::vector<float> dnorm(static_cast<size_t>(maxTau + 1), 0.0f);
+    dnorm[0] = 1.0f;
+    double runningSum = 0.0;
+    for (int tau = 1; tau <= maxTau; ++tau)
     {
-        const float prev = correlation[static_cast<size_t>(lag - 1)];
-        const float curr = correlation[static_cast<size_t>(lag)];
-        const float next = correlation[static_cast<size_t>(lag + 1)];
-        if (curr >= prev && curr >= next && curr >= mpmThreshold)
+        runningSum += d[static_cast<size_t>(tau)];
+        dnorm[static_cast<size_t>(tau)] = (runningSum > 0.0)
+            ? static_cast<float>(d[static_cast<size_t>(tau)] * tau / runningSum)
+            : 1.0f;
+    }
+
+    // ── Step 4: first dip below threshold (absolute pitch detection) ─────────
+    // Standard threshold 0.10–0.15.  Lower = more conservative (silent if unsure).
+    constexpr float yinThreshold = 0.12f;
+    int bestTau = -1;
+
+    for (int tau = minTau; tau <= maxTau - 1; ++tau)
+    {
+        if (dnorm[static_cast<size_t>(tau)] < yinThreshold)
         {
-            mpmLag = lag;
-            bestCorrelation = curr;
+            // slide to the local minimum of this dip
+            while (tau + 1 <= maxTau
+                   && dnorm[static_cast<size_t>(tau + 1)] < dnorm[static_cast<size_t>(tau)])
+                ++tau;
+            bestTau = tau;
             break;
         }
     }
-    if (mpmLag > 0)
-        bestLag = mpmLag;
 
-    if (bestLag <= 0)
+    // Nothing below strict threshold — use global minimum with a looser gate
+    // to handle signals that are close-but-not-quite periodic (e.g. with vibrato).
+    if (bestTau < 0)
+    {
+        int gMin = minTau;
+        for (int tau = minTau + 1; tau <= maxTau; ++tau)
+            if (dnorm[static_cast<size_t>(tau)] < dnorm[static_cast<size_t>(gMin)])
+                gMin = tau;
+
+        if (dnorm[static_cast<size_t>(gMin)] > 0.30f)
+            return 0.0f;   // signal is too noisy / unpitched
+
+        bestTau = gMin;
+    }
+
+    if (bestTau <= 0)
         return 0.0f;
 
-    float refinedLag = static_cast<float>(bestLag);
-    if (bestLag > minLag && bestLag < maxLag)
+    // ── Step 5: parabolic interpolation for sub-sample accuracy ─────────────
+    float refinedTau = static_cast<float>(bestTau);
+    if (bestTau > minTau && bestTau < maxTau)
     {
-        const float y1 = correlation[static_cast<size_t>(bestLag - 1)];
-        const float y2 = correlation[static_cast<size_t>(bestLag)];
-        const float y3 = correlation[static_cast<size_t>(bestLag + 1)];
+        const float y1 = dnorm[static_cast<size_t>(bestTau - 1)];
+        const float y2 = dnorm[static_cast<size_t>(bestTau)];
+        const float y3 = dnorm[static_cast<size_t>(bestTau + 1)];
         const float denom = y1 - 2.0f * y2 + y3;
-
         if (std::abs(denom) > 1.0e-8f)
         {
             const float delta = 0.5f * (y1 - y3) / denom;
-            refinedLag += juce::jlimit(-0.5f, 0.5f, delta);
+            refinedTau += juce::jlimit(-0.5f, 0.5f, delta);
         }
     }
 
-    return static_cast<float>(currentSampleRate / static_cast<double>(refinedLag));
+    if (refinedTau <= 0.0f)
+        return 0.0f;
+
+    return static_cast<float>(currentSampleRate / static_cast<double>(refinedTau));
 }
 
 bool HexstackAudioProcessor::hasEditor() const

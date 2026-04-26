@@ -90,7 +90,7 @@ private:
     static std::vector<float> phaseAlignIRToReference(const std::vector<float>& reference, std::vector<float> candidate);
     static juce::MemoryBlock createWavFromSamples(const std::vector<float>& samples, int sampleRate, int numChannels = 1);
     void analyzeTunerInput(const juce::AudioBuffer<float>& buffer);
-    float estimateFrequencyFromAutocorrelation(const float* samples, int numSamples) const;
+    float estimateFrequencyYIN(const float* samples, int numSamples) const;
 
     juce::AudioProcessorValueTreeState parameters;
 
