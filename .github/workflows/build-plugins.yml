@@ -8,6 +8,9 @@ on:
       - 'source/**'
       - '.github/workflows/build-plugins.yml'
 
+permissions:
+  contents: read
+
 jobs:
   build-windows:
     name: Windows VST3 + Standalone
@@ -15,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configure
         run: cmake -S . -B build
@@ -24,14 +27,14 @@ jobs:
         run: cmake --build build --config Release --target Hexstack_Standalone Hexstack_VST3
 
       - name: Upload Windows Standalone
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-windows-standalone
           path: build/Hexstack_artefacts/Release/Standalone/HEXSTACK.exe
           if-no-files-found: error
 
       - name: Upload Windows VST3
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-windows-vst3
           path: build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3
@@ -43,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
@@ -60,28 +63,28 @@ jobs:
           cp -R build/Hexstack_artefacts/Release/AU/HEXSTACK.component release/macos/
 
       - name: Upload macOS Standalone
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-standalone
           path: build/Hexstack_artefacts/Release/Standalone/HEXSTACK.app
           if-no-files-found: error
 
       - name: Upload macOS VST3
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-vst3
           path: build/Hexstack_artefacts/Release/VST3/HEXSTACK.vst3
           if-no-files-found: error
 
       - name: Upload macOS AU
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-au
           path: build/Hexstack_artefacts/Release/AU/HEXSTACK.component
           if-no-files-found: error
 
       - name: Upload macOS bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-bundle
           path: release/macos
