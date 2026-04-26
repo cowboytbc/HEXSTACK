@@ -319,9 +319,9 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
             if (! file.hasFileExtension(".hex"))
                 file = file.withFileExtension(".hex");
 
-            const auto presetName = safeThis->presetCombo.getText().isNotEmpty()
-                ? safeThis->presetCombo.getText()
-                : juce::String("HEXSTACK Tone");
+            // Use the filename the user typed in the save dialog as the preset name —
+            // not the combo text (which would just be "Default").
+            const auto presetName = file.getFileNameWithoutExtension();
 
             if (! safeThis->audioProcessor.saveHexPresetToFile(file, presetName))
             {
@@ -1497,8 +1497,9 @@ void HexstackAudioProcessorEditor::resized()
             const int voicingH = S(20);
             const int voicingW = S(76);
             const int voicingY = postEqRow.getY() + (postEqRow.getHeight() - voicingH) / 2;
-            voicingLeadButton.setBounds  (postEqRow.getRight() - voicingW,          voicingY, voicingW, voicingH);
-            voicingRhythmButton.setBounds(voicingLeadButton.getX() - voicingW - S(4), voicingY, voicingW, voicingH);
+            const int rightEdge = postEqRow.getRight() + S(30);
+            voicingLeadButton.setBounds  (rightEdge - voicingW,            voicingY, voicingW, voicingH);
+            voicingRhythmButton.setBounds(rightEdge - voicingW * 2 - S(4), voicingY, voicingW, voicingH);
         }
 
         auto ampPreviewArea = visualAreaBelowTabs.toFloat().withTrimmedTop(visualAreaBelowTabs.getHeight() * 0.12f)
