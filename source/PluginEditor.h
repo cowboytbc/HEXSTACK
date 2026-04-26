@@ -92,6 +92,18 @@ private:
     std::unique_ptr<juce::FileChooser> presetChooser;
     ActiveTab activeTab { ActiveTab::amp };
 
+    // ── User hex preset history ───────────────────────────────────────────────
+    struct UserHexEntry { juce::String name; juce::File file; };
+    std::vector<UserHexEntry> userHexPresets;
+    int activeUserHexIndex { -1 };   // -1 = built-in preset active
+    int numBuiltInPresets  { 0 };
+
+    void loadUserHexList();
+    void saveUserHexList();
+    void rebuildPresetCombo();
+    void addOrRefreshUserHexEntry(const juce::String& name, const juce::File& file);
+    // ─────────────────────────────────────────────────────────────────────────
+
     juce::Slider inputSlider;
     juce::Slider driveSlider;
     juce::Slider toneSlider;

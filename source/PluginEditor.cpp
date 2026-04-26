@@ -362,7 +362,15 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
                 return;
             }
 
-            safeThis->syncPresetComboSelection();
+            // Read the preset name stored inside the .hex XML so the combo
+            // shows a meaningful name rather than the bare filename.
+            juce::String presetName;
+            if (const auto xml = juce::XmlDocument::parse(file))
+                presetName = xml->getStringAttribute("presetName");
+            if (presetName.isEmpty())
+                presetName = file.getFileNameWithoutExtension();
+
+            safeThis->addOrRefreshUserHexEntry(presetName, file);
             safeThis->refreshIRStatus();
             safeThis->resized();
             safeThis->repaint();
@@ -439,21 +447,73 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     presetCombo.setColour(juce::ComboBox::outlineColourId, juce::Colour::fromRGB(150, 20, 32).withAlpha(0.82f));
     presetCombo.setTooltip("Select a modern metal / death metal / deathcore preset.");
 
-    for (int i = 0; i < audioProcessor.getNumPrograms(); ++i)
-        presetCombo.addItem(audioProcessor.getProgramName(i), i + 1);
+    numBuiltInPresets = audioProcessor.getNumPrograms();
+    loadUserHexList();
+    rebuildPresetCombo();
+
+    // Restore active selection — prefer the loaded hex file if the processor
+    // recorded one (e.g. after a DAW session restore via setStateInformation).
+    {
+        const auto hexPath = audioProcessor.getActiveHexFilePath();
+        bool restored = false;
+        if (hexPath.isNotEmpty())
+        {
+            for (int i = 0; i < static_cast<int>(userHexPresets.size()); ++i)
+            {
+                if (userHexPresets[static_cast<size_t>(i)].file.getFullPathName() == hexPath)
+                {
+                    activeUserHexIndex = i;
+                    presetCombo.setSelectedId(numBuiltInPresets + i + 1, juce::dontSendNotification);
+                    restored = true;
+                    break;
+                }
+            }
+        }
+        if (! restored)
+            presetCombo.setSelectedId(audioProcessor.getCurrentProgram() + 1, juce::dontSendNotification);
+    }
 
     presetCombo.onChange = [this]
     {
         const int selectedId = presetCombo.getSelectedId();
-        if (selectedId > 0)
+        if (selectedId <= 0)
+            return;
+
+        if (selectedId <= numBuiltInPresets)
+        {
+            // Built-in preset
+            activeUserHexIndex = -1;
             audioProcessor.setCurrentProgram(selectedId - 1);
+        }
+        else
+        {
+            // User hex preset
+            const int userIdx = selectedId - numBuiltInPresets - 1;
+            if (userIdx >= 0 && userIdx < static_cast<int>(userHexPresets.size()))
+            {
+                const auto& entry = userHexPresets[static_cast<size_t>(userIdx)];
+                if (audioProcessor.loadHexPresetFromFile(entry.file))
+                {
+                    activeUserHexIndex = userIdx;
+                    refreshIRStatus();
+                    resized();
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                                                           "Preset Load Failed",
+                                                           "Could not load \"" + entry.name + "\".\n"
+                                                           "The file may have been moved or deleted.");
+                    // Leave the combo on this item so the user can see which one failed.
+                }
+            }
+        }
 
         refreshPostEqControlState();
         refreshIRStatus();
         repaint();
     };
 
-    presetCombo.setSelectedId(audioProcessor.getCurrentProgram() + 1, juce::dontSendNotification);
     addAndMakeVisible(presetCombo);
 
     tunerPanelLabel.setText("MUTED FOR TUNING", juce::dontSendNotification);
@@ -1940,9 +2000,19 @@ void HexstackAudioProcessorEditor::timerCallback()
 
 void HexstackAudioProcessorEditor::syncPresetComboSelection()
 {
-    const int selectedId = audioProcessor.getCurrentProgram() + 1;
-    if (presetCombo.getSelectedId() != selectedId)
-        presetCombo.setSelectedId(selectedId, juce::dontSendNotification);
+    if (activeUserHexIndex >= 0 && activeUserHexIndex < static_cast<int>(userHexPresets.size()))
+    {
+        // A user hex preset is active — keep the combo pointing at it.
+        const int selectedId = numBuiltInPresets + activeUserHexIndex + 1;
+        if (presetCombo.getSelectedId() != selectedId)
+            presetCombo.setSelectedId(selectedId, juce::dontSendNotification);
+    }
+    else
+    {
+        const int selectedId = audioProcessor.getCurrentProgram() + 1;
+        if (presetCombo.getSelectedId() != selectedId)
+            presetCombo.setSelectedId(selectedId, juce::dontSendNotification);
+    }
 }
 
 void HexstackAudioProcessorEditor::syncFxPowerFromParameters()
@@ -1991,3 +2061,108 @@ void HexstackAudioProcessorEditor::setFxPowerParameterValue(size_t index, bool e
     }
 }
 
+// ── User hex preset history ───────────────────────────────────────────────────
+
+void HexstackAudioProcessorEditor::rebuildPresetCombo()
+{
+    // Preserve current selection so we can restore it after clearing.
+    const int prevId = presetCombo.getSelectedId();
+
+    presetCombo.clear(juce::dontSendNotification);
+
+    for (int i = 0; i < numBuiltInPresets; ++i)
+        presetCombo.addItem(audioProcessor.getProgramName(i), i + 1);
+
+    if (! userHexPresets.empty())
+    {
+        presetCombo.addSeparator();
+        for (int i = 0; i < static_cast<int>(userHexPresets.size()); ++i)
+            presetCombo.addItem(userHexPresets[static_cast<size_t>(i)].name,
+                                numBuiltInPresets + i + 1);
+    }
+
+    // Restore previous selection without triggering onChange.
+    if (prevId > 0)
+        presetCombo.setSelectedId(prevId, juce::dontSendNotification);
+}
+
+void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& name,
+                                                             const juce::File& file)
+{
+    // If this file is already in the list, update its display name in place.
+    for (int i = 0; i < static_cast<int>(userHexPresets.size()); ++i)
+    {
+        if (userHexPresets[static_cast<size_t>(i)].file == file)
+        {
+            userHexPresets[static_cast<size_t>(i)].name = name;
+            activeUserHexIndex = i;
+            saveUserHexList();
+            rebuildPresetCombo();
+            presetCombo.setSelectedId(numBuiltInPresets + i + 1, juce::dontSendNotification);
+            return;
+        }
+    }
+
+    // New entry — cap at 1000 user presets (remove the oldest when over the limit).
+    constexpr int maxUserPresets = 1000;
+    if (static_cast<int>(userHexPresets.size()) >= maxUserPresets)
+        userHexPresets.erase(userHexPresets.begin());
+
+    userHexPresets.push_back({ name, file });
+    activeUserHexIndex = static_cast<int>(userHexPresets.size()) - 1;
+
+    saveUserHexList();
+    rebuildPresetCombo();
+    presetCombo.setSelectedId(numBuiltInPresets + activeUserHexIndex + 1,
+                               juce::dontSendNotification);
+}
+
+void HexstackAudioProcessorEditor::loadUserHexList()
+{
+    userHexPresets.clear();
+
+    juce::ApplicationProperties props;
+    juce::PropertiesFile::Options opts;
+    opts.applicationName    = "HEXSTACK";
+    opts.filenameSuffix     = "settings";
+    opts.osxLibrarySubFolder = "Application Support";
+    props.setStorageParameters(opts);
+
+    if (auto* propsFile = props.getUserSettings())
+    {
+        if (const auto xml = propsFile->getXmlValue("userHexPresets"))
+        {
+            for (auto* entry : xml->getChildIterator())
+            {
+                const auto entryName = entry->getStringAttribute("name");
+                const auto path      = entry->getStringAttribute("path");
+                // Only include entries where the file still exists on disk.
+                if (entryName.isNotEmpty() && juce::File(path).existsAsFile())
+                    userHexPresets.push_back({ entryName, juce::File(path) });
+            }
+        }
+    }
+}
+
+void HexstackAudioProcessorEditor::saveUserHexList()
+{
+    juce::ApplicationProperties props;
+    juce::PropertiesFile::Options opts;
+    opts.applicationName    = "HEXSTACK";
+    opts.filenameSuffix     = "settings";
+    opts.osxLibrarySubFolder = "Application Support";
+    props.setStorageParameters(opts);
+
+    if (auto* propsFile = props.getUserSettings())
+    {
+        juce::XmlElement xml("userHexPresets");
+        for (const auto& entry : userHexPresets)
+        {
+            auto* child = xml.createNewChildElement("preset");
+            child->setAttribute("name", entry.name);
+            child->setAttribute("path", entry.file.getFullPathName());
+        }
+        propsFile->setValue("userHexPresets", &xml);
+        propsFile->saveIfNeeded();
+    }
+}

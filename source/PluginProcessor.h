@@ -74,6 +74,7 @@ public:
     TunerRangeMode getTunerRangeMode() const;
     bool saveHexPresetToFile(const juce::File& file, const juce::String& presetName);
     bool loadHexPresetFromFile(const juce::File& file);
+    juce::String getActiveHexFilePath() const { return activeHexFilePath; }
 
 private:
     bool applyLoadedStateTree(const juce::ValueTree& tree);
@@ -139,6 +140,7 @@ private:
     int currentProgramIndex { 0 };
     std::atomic<bool> presetChangeResetPending { false };
     int presetTransitionRampRemainingSamples { 0 };
+    juce::String activeHexFilePath; // path of last loaded .hex file; used by editor to restore combo selection
 
     double currentSampleRate { 44100.0 };
     int currentMaxBlockSize { 512 };

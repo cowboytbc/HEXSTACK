@@ -825,6 +825,7 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
 {
     const auto clamped = juce::jlimit(0, getNumPrograms() - 1, index);
     currentProgramIndex = clamped;
+    activeHexFilePath = {}; // user chose a built-in preset; clear any loaded hex path
 
     const auto& preset = PresetData::presets[static_cast<size_t>(clamped)];
 
@@ -945,7 +946,9 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     stfuGain.fill(1.0f);
     pickTransientState.fill(0.0f);
     pitchChorusPhase = 0.0f;
-    presetTransitionRampRemainingSamples = juce::jmax(0, juce::roundToInt(currentSampleRate * 0.008));
+    // 50 ms fade-in — covers JUCE convolution crossfade time and any single-block
+    // parameter-transition artifact that slips through before the flag is consumed.
+    presetTransitionRampRemainingSamples = juce::jmax(0, juce::roundToInt(currentSampleRate * 0.050));
 }
 
 void HexstackAudioProcessor::requestCabTransitionReset()
@@ -2353,6 +2356,7 @@ void HexstackAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
         mutableState.setProperty(StateKeys::irSource, currentIRFile.existsAsFile() ? "file" : "builtin", nullptr);
         mutableState.setProperty(StateKeys::irPath, currentIRFile.getFullPathName(), nullptr);
         mutableState.setProperty(StateKeys::programIndex, currentProgramIndex, nullptr);
+        mutableState.setProperty("hexFilePath", activeHexFilePath, nullptr);
         std::unique_ptr<juce::XmlElement> xml(mutableState.createXml());
         copyXmlToBinary(*xml, destData);
     }
@@ -2422,13 +2426,25 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
         return false;
 
     const auto stateTree = juce::ValueTree::fromXml(*stateXml);
-    return applyLoadedStateTree(stateTree);
+    const bool ok = applyLoadedStateTree(stateTree);
+
+    // Override the hex file path with the actual file being loaded (old .hex files
+    // pre-date this field so applyLoadedStateTree would leave it empty).
+    if (ok)
+        activeHexFilePath = file.getFullPathName();
+
+    return ok;
 }
 
 bool HexstackAudioProcessor::applyLoadedStateTree(const juce::ValueTree& tree)
 {
     if (! tree.isValid())
         return false;
+
+    // Signal the audio thread to clear all buffers and mute BEFORE the parameter
+    // state changes.  This eliminates the one-block "toilet bowl" artifact caused
+    // by the audio thread reading new parameter values against old dirty buffers.
+    presetChangeResetPending.store(true, std::memory_order_release);
 
     parameters.replaceState(tree);
 
@@ -2451,6 +2467,7 @@ bool HexstackAudioProcessor::applyLoadedStateTree(const juce::ValueTree& tree)
     }
 
     applyAutomatableControlState(true);
+    activeHexFilePath = tree.getProperty("hexFilePath", "").toString();
     presetChangeResetPending.store(true, std::memory_order_release);
     return true;
 }
@@ -2465,7 +2482,9 @@ bool HexstackAudioProcessor::loadUserIRFromFile(const juce::File& file)
                                               juce::dsp::Convolution::Trim::yes,
                                               0,
                                               juce::dsp::Convolution::Normalise::yes);
-    primaryCabConvolution.reset();
+    // Do NOT call reset() here — it is not audio-thread-safe when called from the
+    // message thread while processBlock() is running.  resetRuntimeVoicingState()
+    // (triggered via presetChangeResetPending) handles this from the audio thread.
 
     currentIRFile = file;
     currentIRName = file.getFileNameWithoutExtension();
@@ -2494,7 +2513,10 @@ void HexstackAudioProcessor::reloadStockCabConvolutions()
                                               juce::dsp::Convolution::Trim::yes,
                                               0,
                                               juce::dsp::Convolution::Normalise::yes);
-    primaryCabConvolution.reset();
+    // reset() omitted intentionally for live-session calls — see loadUserIRFromFile
+    // for the explanation.  prepareToPlay() is the only caller that actually needs
+    // a synchronous reset, and it goes through prepareCabinetConvolution() which
+    // calls prepare() (which resets internally).
 }
 
 juce::String HexstackAudioProcessor::getCurrentIRName() const
