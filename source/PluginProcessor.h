@@ -119,7 +119,8 @@ private:
     std::array<float, 2> overdriveToneState { 0.0f, 0.0f };
     std::array<float, 2> overdriveTightState { 0.0f, 0.0f };
     float pitchReadOffset { 0.0f };
-    float pitchChorusPhase { 0.0f };
+    float pitchChorusPhase  { 0.0f };
+    float pitchChorusPhase2 { juce::MathConstants<float>::pi };  // second LFO for dual-voice chorus
     std::array<float, 2> delayToneState { 0.0f, 0.0f };
     std::array<float, 2> delayHighPassState { 0.0f, 0.0f };
     std::array<float, 2> delayDuckEnvelope { 0.0f, 0.0f };

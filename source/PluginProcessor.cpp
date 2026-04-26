@@ -863,7 +863,8 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     stfuGain.fill(1.0f);
     stfuHoldCounter.fill(0);
     pickTransientState.fill(0.0f);
-    pitchChorusPhase = 0.0f;
+    pitchChorusPhase  = 0.0f;
+    pitchChorusPhase2 = juce::MathConstants<float>::pi;
     tunerCommittedMidiNote = -1;
     std::fill(std::begin(tunerRawFreqHistory), std::end(tunerRawFreqHistory), 0.0f);
     tunerRawFreqHistoryPos   = 0;
@@ -938,8 +939,9 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     reverbPreDelayWritePosition = 0;
     overdriveToneState.fill(0.0f);
     overdriveTightState.fill(0.0f);
-    pitchReadOffset = 0.0f;
-    pitchChorusPhase = 0.0f;
+    pitchReadOffset   = 0.0f;
+    pitchChorusPhase  = 0.0f;
+    pitchChorusPhase2 = juce::MathConstants<float>::pi;
     delayToneState.fill(0.0f);
     delayHighPassState.fill(0.0f);
     delayDuckEnvelope.fill(0.0f);
@@ -1689,7 +1691,11 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
     if (presetTransitionRampRemainingSamples > 0)
     {
-        const int totalRampSamples = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.008));
+        // totalRampSamples MUST match the value set in resetRuntimeVoicingState()
+        // (currently 0.050 * sr).  If it is smaller, (remaining / total) > 1 and
+        // rampGain becomes negative — inverting and amplifying the signal by up to
+        // 6× for ~42ms.  That was the real "toilet bowl goblin" root cause.
+        const int totalRampSamples = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.050));
 
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
@@ -1697,7 +1703,8 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             if (rampSamplesBefore <= 0)
                 break;
 
-            const float rampGain = 1.0f - (static_cast<float>(rampSamplesBefore) / static_cast<float>(totalRampSamples));
+            const float rampGain = juce::jlimit(0.0f, 1.0f,
+                1.0f - (static_cast<float>(rampSamplesBefore) / static_cast<float>(totalRampSamples)));
 
             for (int channel = 0; channel < totalNumInputChannels; ++channel)
                 buffer.getWritePointer(channel)[sample] *= rampGain;
@@ -1787,12 +1794,18 @@ void HexstackAudioProcessor::processPitchEffect(juce::AudioBuffer<float>& buffer
     const float advance = usePitchShift ? juce::jlimit(-0.95f, 3.5f, baseRatio - 1.0f)
                                         : 0.0f;
     const float widthCurve = std::pow(width, 0.92f);
-    const float chorusBlend = juce::jlimit(0.0f, 1.0f, 0.08f + widthCurve * 0.40f);
+    // chorusBlend: how much the modulated delays replace the dry signal in each voice.
+    // Raised from 0.08+0.40 (max 0.48) to 0.12+0.63 (max 0.75) for a fuller, more audible chorus.
+    const float chorusBlend = juce::jlimit(0.0f, 1.0f, 0.12f + widthCurve * 0.63f);
     const float chorusWetness = juce::jlimit(0.0f, 1.0f, std::pow(widthCurve, 1.35f));
-    const float chorusRateHz = juce::jmap(widthCurve, 0.16f, 0.62f);
-    const float chorusDepthSamples = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.0009f, 0.0052f);
+    // Primary LFO rate; secondary LFO runs at golden-ratio multiple for non-periodic beating.
+    const float chorusRateHz  = juce::jmap(widthCurve, 0.18f, 0.72f);
+    const float chorusRate2Hz = chorusRateHz * (1.0f + widthCurve * 0.618f);
+    // Depth raised from max 5.2ms to max 10ms for a lush, audible sweep.
+    const float chorusDepthSamples = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.0012f, 0.0100f);
     const float chorusBaseDelaySamples = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.011f, 0.020f);
-    const float chorusPhaseAdvance = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRateHz / currentSampleRate);
+    const float chorusPhaseAdvance  = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRateHz  / currentSampleRate);
+    const float chorusPhaseAdvance2 = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRate2Hz / currentSampleRate);
 
     auto wrapWindowPosition = [windowSize](float value)
     {
@@ -1844,24 +1857,34 @@ void HexstackAudioProcessor::processPitchEffect(juce::AudioBuffer<float>& buffer
         const float envB = 1.0f - std::abs((grainB / halfWindow) - 1.0f);
 
         const float centeredPitched = renderGranularVoice(grainA, grainB, envA, envB, 0.0f);
-        const float chorusLfoLeft = std::sin(pitchChorusPhase);
-        const float chorusLfoRight = std::sin(pitchChorusPhase + juce::MathConstants<float>::halfPi);
-        const float chorusDelayLeft = chorusBaseDelaySamples + chorusDepthSamples * chorusLfoLeft;
+        // Dual-LFO chorus: primary LFO (0°/90°) + secondary LFO at golden-ratio rate (0°/90°).
+        // Blending both (70/30) creates non-periodic beating that sounds like two detune voices.
+        const float lfo1L = std::sin(pitchChorusPhase);
+        const float lfo1R = std::sin(pitchChorusPhase + juce::MathConstants<float>::halfPi);
+        const float lfo2L = std::sin(pitchChorusPhase2);
+        const float lfo2R = std::sin(pitchChorusPhase2 + juce::MathConstants<float>::halfPi);
+        const float chorusLfoLeft  = lfo1L * 0.70f + lfo2L * 0.30f;
+        const float chorusLfoRight = lfo1R * 0.70f + lfo2R * 0.30f;
+        const float chorusDelayLeft  = chorusBaseDelaySamples + chorusDepthSamples * chorusLfoLeft;
         const float chorusDelayRight = chorusBaseDelaySamples + chorusDepthSamples * chorusLfoRight;
-        const float chorusVoiceLeft = readInterpolatedSample(chorusDelayLeft);
+        const float chorusVoiceLeft  = readInterpolatedSample(chorusDelayLeft);
         const float chorusVoiceRight = readInterpolatedSample(chorusDelayRight);
-        const float chorusStereoLeft = monoDry * (1.0f - chorusBlend) + chorusVoiceLeft * chorusBlend;
+        const float chorusStereoLeft  = monoDry * (1.0f - chorusBlend) + chorusVoiceLeft  * chorusBlend;
         const float chorusStereoRight = monoDry * (1.0f - chorusBlend) + chorusVoiceRight * chorusBlend;
 
+        // When pitch shift is active, blend chorus more aggressively into the wet path so
+        // the whammy has stereo width and life instead of sounding like a single dry voice.
+        // Old multiplier was 0.28 (max 13% chorus); new 0.52 gives max ~39% chorus contribution.
+        const float chorMixFraction = usePitchShift ? 0.52f * chorusBlend : 1.0f;
         const float wetLeft = usePitchShift
             ? juce::jmap(chorusWetness,
                          centeredPitched,
-                         centeredPitched * (1.0f - 0.28f * chorusBlend) + chorusStereoLeft * (0.28f * chorusBlend))
+                         centeredPitched * (1.0f - chorMixFraction) + chorusStereoLeft  * chorMixFraction)
             : chorusStereoLeft;
         const float wetRight = usePitchShift
             ? juce::jmap(chorusWetness,
                          centeredPitched,
-                         centeredPitched * (1.0f - 0.28f * chorusBlend) + chorusStereoRight * (0.28f * chorusBlend))
+                         centeredPitched * (1.0f - chorMixFraction) + chorusStereoRight * chorMixFraction)
             : chorusStereoRight;
 
         if (numChannels == 1)
@@ -1884,6 +1907,9 @@ void HexstackAudioProcessor::processPitchEffect(juce::AudioBuffer<float>& buffer
         pitchChorusPhase += chorusPhaseAdvance;
         if (pitchChorusPhase >= juce::MathConstants<float>::twoPi)
             pitchChorusPhase -= juce::MathConstants<float>::twoPi;
+        pitchChorusPhase2 += chorusPhaseAdvance2;
+        if (pitchChorusPhase2 >= juce::MathConstants<float>::twoPi)
+            pitchChorusPhase2 -= juce::MathConstants<float>::twoPi;
 
         pitchWritePosition = (pitchWritePosition + 1) % bufferSize;
     }
@@ -2354,8 +2380,23 @@ bool HexstackAudioProcessor::saveHexPresetToFile(const juce::File& file, const j
         return false;
 
     auto mutableState = state;
-    mutableState.setProperty(StateKeys::irSource, currentIRFile.existsAsFile() ? "file" : "builtin", nullptr);
-    mutableState.setProperty(StateKeys::irPath, currentIRFile.getFullPathName(), nullptr);
+
+    // Determine IR source: if a user cab is loaded, embed the raw WAV bytes as base64
+    // so the .hex file is fully self-contained.  Recipients can load the preset without
+    // having to obtain the same IR file separately.
+    juce::MemoryBlock embeddedCabRaw;
+    const bool hasUserCab = currentIRFile.existsAsFile();
+    if (hasUserCab && currentIRFile.loadFileAsData(embeddedCabRaw))
+    {
+        mutableState.setProperty(StateKeys::irSource, "embedded", nullptr);
+        mutableState.setProperty(StateKeys::irPath, currentIRFile.getFileName(), nullptr);  // display name only
+    }
+    else
+    {
+        mutableState.setProperty(StateKeys::irSource, hasUserCab ? "file" : "builtin", nullptr);
+        mutableState.setProperty(StateKeys::irPath, currentIRFile.getFullPathName(), nullptr);
+    }
+
     mutableState.setProperty(StateKeys::programIndex, currentProgramIndex, nullptr);
     auto stateXml = std::unique_ptr<juce::XmlElement>(mutableState.createXml());
     if (stateXml == nullptr)
@@ -2368,6 +2409,19 @@ bool HexstackAudioProcessor::saveHexPresetToFile(const juce::File& file, const j
     auto pluginState = std::make_unique<juce::XmlElement>(HexPresetKeys::pluginStateTag);
     pluginState->addChildElement(stateXml.release());
     root.addChildElement(pluginState.release());
+
+    // Append the embedded cab data (base64) as a sibling of PluginState.
+    if (embeddedCabRaw.getSize() > 0)
+    {
+        juce::MemoryOutputStream base64Stream;
+        juce::Base64::convertToBase64(base64Stream, embeddedCabRaw.getData(), embeddedCabRaw.getSize());
+
+        auto* cabElement = new juce::XmlElement("CabIR");
+        cabElement->setAttribute("filename", currentIRFile.getFileName());
+        cabElement->setAttribute("encoding", "base64");
+        cabElement->addTextElement(base64Stream.toString());
+        root.addChildElement(cabElement);
+    }
 
     if (! file.getParentDirectory().createDirectory())
         return false;
@@ -2397,12 +2451,38 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
 
     auto stateTree = juce::ValueTree::fromXml(*stateXml);
 
-    // If the preset references a 3rd-party cab, resolve the path relative to the
-    // .hex file's folder before loading.  This lets preset authors ship their cab
-    // alongside the .hex and have it load on any machine regardless of the absolute
-    // path that was baked in when the preset was saved.
+    // ── Embedded cab IR ──────────────────────────────────────────────────────────
+    // Presets saved with a user cab embed the raw WAV bytes as base64 in a <CabIR>
+    // element.  Extract to HEXSTACK/UserCabs/ so currentIRFile points to a real
+    // file; re-saving the preset will then re-embed the same data.
     const auto irSource = stateTree.getProperty(StateKeys::irSource).toString();
-    if (irSource == "file")
+    juce::MemoryBlock embeddedCabData;
+    juce::File embeddedCabFile;
+
+    if (irSource == "embedded")
+    {
+        const auto* cabElement = xml->getChildByName("CabIR");
+        if (cabElement != nullptr)
+        {
+            juce::MemoryOutputStream mos(embeddedCabData, false);
+            juce::Base64::convertFromBase64(mos, cabElement->getAllSubText().trim());
+
+            if (embeddedCabData.getSize() > 0)
+            {
+                const juce::String cabFilename = cabElement->getStringAttribute("filename", "embedded_cab.wav");
+                const juce::File userCabsDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                                   .getChildFile("HEXSTACK/UserCabs");
+                userCabsDir.createDirectory();
+                embeddedCabFile = userCabsDir.getChildFile(cabFilename);
+                embeddedCabFile.replaceWithData(embeddedCabData.getData(), embeddedCabData.getSize());
+            }
+        }
+        // Tell applyLoadedStateTree the source is builtin so it won't try to reload
+        // a user file path.  We'll load the embedded IR ourselves right after.
+        stateTree.setProperty(StateKeys::irSource, "builtin", nullptr);
+    }
+    // ── External cab path resolution ─────────────────────────────────────────────
+    else if (irSource == "file")
     {
         const juce::File savedIR(stateTree.getProperty(StateKeys::irPath).toString());
         if (! savedIR.existsAsFile())
@@ -2412,13 +2492,10 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
                                               .getChildFile(savedIR.getFileName());
             if (relativeIR.existsAsFile())
             {
-                // Redirect to the found cab
                 stateTree.setProperty(StateKeys::irPath, relativeIR.getFullPathName(), nullptr);
             }
             else
             {
-                // Cab is genuinely missing — show a clear error instead of silently
-                // falling back to the built-in and confusing the user's tone.
                 juce::MessageManager::callAsync([cabName = savedIR.getFileName()]
                 {
                     juce::AlertWindow::showMessageBoxAsync(
@@ -2434,6 +2511,21 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
     }
 
     const bool ok = applyLoadedStateTree(stateTree);
+
+    // After applyLoadedStateTree, load the embedded IR if one was found.
+    // applyLoadedStateTree saw "builtin" and (with currentIRFile empty) skipped any
+    // stock cab reload, so loading the embedded IR here takes effect cleanly.
+    if (ok && embeddedCabFile.existsAsFile())
+    {
+        primaryCabConvolution.loadImpulseResponse(embeddedCabFile,
+                                                  juce::dsp::Convolution::Stereo::yes,
+                                                  juce::dsp::Convolution::Trim::yes,
+                                                  0,
+                                                  juce::dsp::Convolution::Normalise::yes);
+        currentIRFile = embeddedCabFile;
+        currentIRName = embeddedCabFile.getFileNameWithoutExtension();
+        requestCabTransitionReset();
+    }
 
     // Override the hex file path with the actual file being loaded (old .hex files
     // pre-date this field so applyLoadedStateTree would leave it empty).
