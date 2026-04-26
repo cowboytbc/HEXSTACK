@@ -964,8 +964,8 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     stfuHoldCounter.fill(0);
     pickTransientState.fill(0.0f);
 
-    constexpr int tunerCaptureSize = 8192;
-    constexpr int tunerWindowSize = 4096;
+    constexpr int tunerCaptureSize = 16384;
+    constexpr int tunerWindowSize = 8192;
     tunerCaptureBuffer.assign(tunerCaptureSize, 0.0f);
     tunerWindowBuffer.assign(tunerWindowSize, 0.0f);
     tunerCaptureWritePos = 0;
@@ -1158,15 +1158,14 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         const float threshold   = juce::Decibels::decibelsToGain(thresholdDb);
         const float envWindowSeconds = 0.0048f - 0.0008f * rhythmBias + 0.0008f * leadBias;
         const float attackSeconds = 0.0016f - 0.0003f * rhythmBias + 0.0002f * leadBias;
-        const float releaseSeconds = 0.250f + 0.080f * leadBias;
+        const float releaseSeconds = juce::jmap(stfuKnobVal, 0.180f, 0.065f) + 0.060f * leadBias;
         // Hold: keep gate fully open after each note so the pick attack decays
         // naturally before the gate starts to close.  Without hold, the expansion
         // curve acts on the mid-decay signal and produces a high-freq "squeak".
         const float holdSeconds = 0.080f + 0.010f * leadBias;
         const int   holdSamples = juce::roundToInt(holdSeconds * static_cast<float>(currentSampleRate));
-        // Expansion power scales with knob: soft (r^2) at min → very hard (r^6) at max.
-        // At full gate, r^6 at 50% threshold = -48 dB; impossible for amp gain to undo.
-        const float expansionPow = 2.0f + 4.0f * stfuKnobVal;
+        // Expansion power scales with knob: soft (r^2.5) at min → very hard (r^7) at max.
+        const float expansionPow = 2.5f + 4.5f * stfuKnobVal;
         const float envCoeff    = std::exp(-1.0f / (envWindowSeconds * static_cast<float>(currentSampleRate)));
         const float attackCoeff = std::exp(-1.0f / (attackSeconds * static_cast<float>(currentSampleRate)));
         const float releaseCoeff= std::exp(-1.0f / (releaseSeconds * static_cast<float>(currentSampleRate)));
@@ -2132,7 +2131,7 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     if (tunerCaptureValidSamples < static_cast<int>(tunerWindowBuffer.size()))
         return;
 
-    constexpr int tunerAnalysisHopSize = 4096;  // ~93ms at 44.1kHz — stable, not hectic
+    constexpr int tunerAnalysisHopSize = 2048;  // ~46ms at 44.1kHz — responsive
     if (tunerSamplesSinceLastAnalysis < tunerAnalysisHopSize)
         return;
 
@@ -2188,15 +2187,12 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         return;
     }
 
-    // ── Median filter: push raw estimate into 5-slot circular buffer ──────────
-    // The autocorrelation occasionally produces a single wild outlier frame.
-    // Taking the median of the last 5 estimates eliminates those without
-    // slowing down lock-on time the way a moving average would.
+    // ── Median filter: push raw estimate into 7-slot circular buffer ──────────
     tunerRawFreqHistory[tunerRawFreqHistoryPos] = frequency;
-    tunerRawFreqHistoryPos = (tunerRawFreqHistoryPos + 1) % 5;
-    if (tunerRawFreqHistoryCount < 5) ++tunerRawFreqHistoryCount;
+    tunerRawFreqHistoryPos = (tunerRawFreqHistoryPos + 1) % 7;
+    if (tunerRawFreqHistoryCount < 7) ++tunerRawFreqHistoryCount;
 
-    float sorted[5];
+    float sorted[7];
     std::copy(tunerRawFreqHistory, tunerRawFreqHistory + tunerRawFreqHistoryCount, sorted);
     std::sort(sorted, sorted + tunerRawFreqHistoryCount);
     const float medianFreq = sorted[tunerRawFreqHistoryCount / 2];
@@ -2228,7 +2224,7 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     // ── Committed note: only switch displayed note after 3 stable frames ──────
     // This stops the note label from bouncing between adjacent semitones.
     // Until a committed note exists, seed it so the display shows something.
-    if (tunerStableFrames >= 3)
+    if (tunerStableFrames >= 2)
         tunerCommittedMidiNote = rawMidiNote;
     else if (tunerCommittedMidiNote < 0)
         tunerCommittedMidiNote = juce::jmax(rawMidiNote, 0);
@@ -2253,15 +2249,17 @@ float HexstackAudioProcessor::estimateFrequencyFromAutocorrelation(const float* 
     switch (getTunerRangeMode())
     {
         case TunerRangeMode::bass:
-            minFrequency = 30.0f;
+            minFrequency = 25.0f;   // covers all standard bass tunings incl. low B
             maxFrequency = 420.0f;
             break;
         case TunerRangeMode::guitar:
-            minFrequency = 65.0f;
+            minFrequency = 30.0f;   // covers drop A / drop B / drop C open strings
             maxFrequency = 1400.0f;
             break;
         case TunerRangeMode::wide:
         default:
+            minFrequency = 22.0f;   // below any standard instrument
+            maxFrequency = 2000.0f;
             break;
     }
 
@@ -2300,21 +2298,31 @@ float HexstackAudioProcessor::estimateFrequencyFromAutocorrelation(const float* 
         }
     }
 
+    // MPM-style peak picker: find the FIRST local maximum that is >= 0.82 * the
+    // global peak.  Walking from minLag (high freq) means we reject harmonic peaks
+    // whose correlation is weaker than the fundamental, and land on the fundamental.
+    // This eliminates octave errors caused by the old "first local max > 0.20" heuristic.
+    if (bestCorrelation < 0.20f)
+        return 0.0f;
+
+    const float mpmThreshold = 0.82f * bestCorrelation;
+    int mpmLag = -1;
     for (int lag = minLag + 1; lag < maxLag; ++lag)
     {
         const float prev = correlation[static_cast<size_t>(lag - 1)];
         const float curr = correlation[static_cast<size_t>(lag)];
         const float next = correlation[static_cast<size_t>(lag + 1)];
-
-        if (curr > 0.20f && curr >= prev && curr >= next)
+        if (curr >= prev && curr >= next && curr >= mpmThreshold)
         {
-            bestLag = lag;
+            mpmLag = lag;
             bestCorrelation = curr;
             break;
         }
     }
+    if (mpmLag > 0)
+        bestLag = mpmLag;
 
-    if (bestLag <= 0 || bestCorrelation < 0.18f)
+    if (bestLag <= 0)
         return 0.0f;
 
     float refinedLag = static_cast<float>(bestLag);
