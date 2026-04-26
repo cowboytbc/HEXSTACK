@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+
+    <title>HEXSTACK</title>
+    <organization>com.inferoplugins</organization>
+
+    <!-- Allow installation to the local system (admin) -->
+    <domains enable_localSystem="true"/>
+
+    <!-- Show component picker so the user can choose what to install -->
+    <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+
+    <choices-outline>
+        <line choice="vst3"/>
+        <line choice="au"/>
+        <line choice="standalone"/>
+    </choices-outline>
+
+    <!-- VST3 choice -->
+    <choice id="vst3" visible="true" selected="true"
+            title="VST3 Plugin"
+            description="Installs HEXSTACK.vst3 to /Library/Audio/Plug-Ins/VST3. Works in Reaper, Ableton Live, Cubase, Studio One, Logic Pro, and most modern DAWs.">
+        <pkg-ref id="com.inferoplugins.hexstack.vst3"/>
+    </choice>
+
+    <!-- Audio Unit choice -->
+    <choice id="au" visible="true" selected="true"
+            title="Audio Unit (AU) Plugin"
+            description="Installs HEXSTACK.component to /Library/Audio/Plug-Ins/Components. Required for Logic Pro and GarageBand.">
+        <pkg-ref id="com.inferoplugins.hexstack.au"/>
+    </choice>
+
+    <!-- Standalone choice -->
+    <choice id="standalone" visible="true" selected="true"
+            title="Standalone Application"
+            description="Installs HEXSTACK.app to /Applications. Run the amp sim without a DAW.">
+        <pkg-ref id="com.inferoplugins.hexstack.standalone"/>
+    </choice>
+
+    <!-- Component package references — filenames must match what pkgbuild outputs -->
+    <pkg-ref id="com.inferoplugins.hexstack.vst3"    auth="Root">HEXSTACK-vst3.pkg</pkg-ref>
+    <pkg-ref id="com.inferoplugins.hexstack.au"       auth="Root">HEXSTACK-au.pkg</pkg-ref>
+    <pkg-ref id="com.inferoplugins.hexstack.standalone" auth="Root">HEXSTACK-standalone.pkg</pkg-ref>
+
+</installer-gui-script>

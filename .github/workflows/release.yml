@@ -1,19 +1,19 @@
-name: Release HEXSTACK
+﻿name: Release HEXSTACK
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create or update (example: v0.2.0)"
+        description: "Release tag (e.g. v0.2.0)"
         required: true
         type: string
       create_release:
-        description: Create or update a GitHub release and upload the packaged bundles
+        description: Create or update a GitHub release
         required: true
         default: true
         type: boolean
       notarize_macos:
-        description: Sign and notarize macOS bundles when Apple secrets are configured
+        description: Sign and notarize macOS installer (requires Apple secrets)
         required: true
         default: true
         type: boolean
@@ -29,7 +29,7 @@ env:
 
 jobs:
   build-windows:
-    name: Package Windows release
+    name: Build Windows installer (.exe)
     runs-on: windows-2022
 
     steps:
@@ -39,19 +39,14 @@ jobs:
       - name: Resolve release tag
         shell: pwsh
         run: |
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch')
-          {
-              $tag = '${{ inputs.tag }}'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $tag = '${{ inputs.tag }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
           }
-          else
-          {
-              $tag = '${{ github.ref_name }}'
-          }
-
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-
-          $safeTag = $tag -replace '[^A-Za-z0-9._-]', '-'
-          "SAFE_RELEASE_TAG=$safeTag" >> $env:GITHUB_ENV
+          $version = $tag -replace '^v', ''
+          "VERSION=$version" >> $env:GITHUB_ENV
 
       - name: Configure
         run: cmake -S . -B build
@@ -59,57 +54,51 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --target Hexstack_Standalone Hexstack_VST3
 
-      - name: Package Windows bundles
+      - name: Stage artifacts for Inno Setup
         shell: pwsh
         run: |
-          $releaseRoot = Join-Path $PWD 'release'
-          $bundleRoot = Join-Path $releaseRoot 'windows'
-          $zipPath = Join-Path $releaseRoot ("HEXSTACK-windows-$env:SAFE_RELEASE_TAG.zip")
+          $vst3Src = 'build\Hexstack_artefacts\Release\VST3\HEXSTACK.vst3'
+          $exeSrc  = 'build\Hexstack_artefacts\Release\Standalone\HEXSTACK.exe'
 
-          New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot 'Standalone') | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot 'VST3') | Out-Null
+          if (!(Test-Path $vst3Src)) { throw "VST3 bundle not found at $vst3Src" }
+          if (!(Test-Path $exeSrc))  { throw "Standalone exe not found at $exeSrc" }
 
-          $standaloneSource = Join-Path $PWD 'build\Hexstack_artefacts\Release\Standalone\HEXSTACK.exe'
-          $vst3Source = Join-Path $PWD 'build\Hexstack_artefacts\Release\VST3\HEXSTACK.vst3'
+          New-Item -ItemType Directory -Force -Path 'installer-staging\VST3\HEXSTACK.vst3' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'installer-staging\Standalone'          | Out-Null
 
-          if (!(Test-Path $standaloneSource))
-          {
-              throw "Standalone executable not found at $standaloneSource"
-          }
+          Copy-Item -Recurse -Force "$vst3Src\*" 'installer-staging\VST3\HEXSTACK.vst3\'
+          Copy-Item -Force $exeSrc 'installer-staging\Standalone\HEXSTACK.exe'
 
-          if (!(Test-Path $vst3Source))
-          {
-              throw "VST3 bundle not found at $vst3Source"
-          }
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
 
-          Copy-Item -Force $standaloneSource (Join-Path $bundleRoot 'Standalone\HEXSTACK.exe')
-          Copy-Item -Recurse -Force $vst3Source (Join-Path $bundleRoot 'VST3\HEXSTACK.vst3')
-          Copy-Item -Force (Join-Path $PWD 'installers\windows\Install-HEXSTACK-Windows.ps1') (Join-Path $bundleRoot 'Install-HEXSTACK-Windows.ps1')
-          Copy-Item -Force (Join-Path $PWD 'docs\WINDOWS_INSTALL.md') (Join-Path $bundleRoot 'READ_ME_FIRST_WINDOWS_INSTALL.md')
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          & $iscc 'installers\windows\hexstack.iss' "/DMyAppVersion=$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (exit $LASTEXITCODE)" }
+          $built = Get-ChildItem 'release\HEXSTACK-Windows-*-Setup.exe' | Select-Object -First 1
+          if (!$built) { throw "Installer .exe not found in release\" }
+          Write-Output "Installer built: $($built.Name)"
 
-          if (Test-Path $zipPath)
-          {
-              Remove-Item -Force $zipPath
-          }
-
-          Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
-
-      - name: Upload Windows release bundle
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-windows-release
-          path: release/HEXSTACK-windows-*.zip
+          path: release/HEXSTACK-Windows-*-Setup.exe
           if-no-files-found: error
 
   build-macos:
-    name: Package macOS release
+    name: Build macOS installer (.pkg)
     runs-on: macos-15
     env:
       APPLE_DEV_ID_APP_CERT_P12_BASE64: ${{ secrets.APPLE_DEV_ID_APP_CERT_P12_BASE64 }}
-      APPLE_DEV_ID_APP_CERT_PASSWORD: ${{ secrets.APPLE_DEV_ID_APP_CERT_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_DEV_ID_APP_CERT_PASSWORD:   ${{ secrets.APPLE_DEV_ID_APP_CERT_PASSWORD }}
+      APPLE_ID:                         ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD:      ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID:                    ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       - name: Checkout
@@ -123,26 +112,9 @@ jobs:
           else
             tag="${{ github.ref_name }}"
           fi
-
           echo "RELEASE_TAG=${tag}" >> "$GITHUB_ENV"
-
-          safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
-          echo "SAFE_RELEASE_TAG=${safe_tag}" >> "$GITHUB_ENV"
-
-      - name: Resolve macOS release mode
-        shell: bash
-        run: |
-          package_name="HEXSTACK-macos-${SAFE_RELEASE_TAG}.zip"
-          package_mode="signed"
-
-          if [ -z "$APPLE_DEV_ID_APP_CERT_P12_BASE64" ] || [ -z "$APPLE_DEV_ID_APP_CERT_PASSWORD" ]; then
-            package_mode="unsigned"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.notarize_macos }}" != "true" ]; then
-            package_mode="manual-unsigned"
-          fi
-
-          echo "MACOS_PACKAGE_NAME=${package_name}" >> "$GITHUB_ENV"
-          echo "MACOS_PACKAGE_MODE=${package_mode}" >> "$GITHUB_ENV"
+          version="${tag#v}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
@@ -155,38 +127,27 @@ jobs:
         run: |
           mkdir -p release/macos
 
-          standalone_path=$(find build -type d -path '*/Standalone/HEXSTACK.app' | head -n 1)
-          vst3_path=$(find build -type d -path '*/VST3/HEXSTACK.vst3' | head -n 1)
-          au_path=$(find build -type d -path '*/AU/HEXSTACK.component' | head -n 1)
+          standalone_path=$(find build -type d -path '*/Standalone/HEXSTACK.app'  | head -n 1)
+          vst3_path=$(      find build -type d -path '*/VST3/HEXSTACK.vst3'       | head -n 1)
+          au_path=$(        find build -type d -path '*/AU/HEXSTACK.component'    | head -n 1)
 
-          echo "Standalone: ${standalone_path}"
-          echo "VST3: ${vst3_path}"
-          echo "AU: ${au_path}"
+          echo "Standalone : ${standalone_path}"
+          echo "VST3       : ${vst3_path}"
+          echo "AU         : ${au_path}"
 
-          test -n "${standalone_path}" || { echo "Standalone app not found"; find build -maxdepth 5 | sort; exit 1; }
-          test -n "${vst3_path}" || { echo "VST3 bundle not found"; find build -maxdepth 5 | sort; exit 1; }
-          test -n "${au_path}" || { echo "AU component not found"; find build -maxdepth 5 | sort; exit 1; }
+          test -n "${standalone_path}" || { echo "Standalone not found"; find build -maxdepth 6 | sort; exit 1; }
+          test -n "${vst3_path}"       || { echo "VST3 not found";       find build -maxdepth 6 | sort; exit 1; }
+          test -n "${au_path}"         || { echo "AU not found";         find build -maxdepth 6 | sort; exit 1; }
 
           cp -R "${standalone_path}" release/macos/
-          cp -R "${vst3_path}" release/macos/
-          cp -R "${au_path}" release/macos/
-          cp docs/MAC_INSTALL.md release/macos/READ_ME_FIRST_MAC_INSTALL.md
-          cp installers/macos/Install-HEXSTACK-Mac.command release/macos/Install-HEXSTACK-Mac.command
-          chmod +x release/macos/Install-HEXSTACK-Mac.command
-
-      - name: Report signing mode
-        shell: bash
-        run: |
-          if [ -n "${{ secrets.APPLE_DEV_ID_APP_CERT_P12_BASE64 }}" ] && [ -n "${{ secrets.APPLE_DEV_ID_APP_CERT_PASSWORD }}" ]; then
-            echo "Developer ID certificate secrets detected. macOS bundles can be signed."
-          else
-            echo "Developer ID certificate secrets not configured. macOS bundles will be packaged unsigned."
-          fi
-
-          echo "macOS package mode: $MACOS_PACKAGE_MODE"
+          cp -R "${vst3_path}"       release/macos/
+          cp -R "${au_path}"         release/macos/
 
       - name: Import Developer ID certificate
-        if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != ''
+        if: >
+          (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) &&
+          env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' &&
+          env.APPLE_DEV_ID_APP_CERT_PASSWORD   != ''
         shell: bash
         run: |
           CERT_PATH="$RUNNER_TEMP/developer-id-application.p12"
@@ -194,7 +155,6 @@ jobs:
           KEYCHAIN_PASSWORD="hexstack-temporary-keychain"
 
           echo "$APPLE_DEV_ID_APP_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
-
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -202,25 +162,36 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          CODE_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F '"' '/Developer ID Application/ { print $2; exit }')
-          test -n "$CODE_SIGN_IDENTITY" || { echo "No Developer ID Application identity found"; security find-identity -v -p codesigning "$KEYCHAIN_PATH"; exit 1; }
+          CODE_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | awk -F '"' '/Developer ID Application/ { print $2; exit }')
+          test -n "$CODE_SIGN_IDENTITY" || { echo "No Developer ID Application identity found"; exit 1; }
 
           echo "CODE_SIGN_IDENTITY=$CODE_SIGN_IDENTITY" >> "$GITHUB_ENV"
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"           >> "$GITHUB_ENV"
 
       - name: Sign macOS bundles
-        if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != ''
+        if: >
+          (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) &&
+          env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' &&
+          env.APPLE_DEV_ID_APP_CERT_PASSWORD   != ''
         shell: bash
         run: |
           for bundle in release/macos/HEXSTACK.app release/macos/HEXSTACK.vst3 release/macos/HEXSTACK.component; do
             xattr -cr "$bundle"
             chmod -R u+w "$bundle"
-            codesign --force --deep --options runtime --timestamp --sign "$CODE_SIGN_IDENTITY" "$bundle"
+            codesign --force --deep --options runtime --timestamp \
+              --sign "$CODE_SIGN_IDENTITY" "$bundle"
             codesign --verify --verbose=2 "$bundle"
           done
 
       - name: Notarize and staple macOS bundles
-        if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
+        if: >
+          (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) &&
+          env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' &&
+          env.APPLE_DEV_ID_APP_CERT_PASSWORD   != '' &&
+          env.APPLE_ID                         != '' &&
+          env.APPLE_APP_SPECIFIC_PASSWORD      != '' &&
+          env.APPLE_TEAM_ID                    != ''
         shell: bash
         run: |
           NOTARY_PROFILE="hexstack-notary-profile"
@@ -238,18 +209,47 @@ jobs:
           xcrun stapler staple release/macos/HEXSTACK.vst3
           xcrun stapler staple release/macos/HEXSTACK.component
 
-      - name: Package macOS bundles
+      - name: Build macOS installer package
         shell: bash
         run: |
-          zip_path="release/${MACOS_PACKAGE_NAME}"
-          rm -f "$zip_path"
-          ditto -c -k --keepParent release/macos "$zip_path"
+          version="$VERSION"
+          mkdir -p pkg-staging/vst3/Library/Audio/Plug-Ins/VST3
+          mkdir -p pkg-staging/au/Library/Audio/Plug-Ins/Components
+          mkdir -p pkg-staging/standalone/Applications
+          mkdir -p pkg-components
 
-      - name: Upload macOS release bundle
+          cp -R release/macos/HEXSTACK.vst3      pkg-staging/vst3/Library/Audio/Plug-Ins/VST3/
+          cp -R release/macos/HEXSTACK.component  pkg-staging/au/Library/Audio/Plug-Ins/Components/
+          cp -R release/macos/HEXSTACK.app        pkg-staging/standalone/Applications/
+
+          pkgbuild --root pkg-staging/vst3 \
+                   --identifier com.inferoplugins.hexstack.vst3 \
+                   --version "$version" \
+                   pkg-components/HEXSTACK-vst3.pkg
+
+          pkgbuild --root pkg-staging/au \
+                   --identifier com.inferoplugins.hexstack.au \
+                   --version "$version" \
+                   pkg-components/HEXSTACK-au.pkg
+
+          pkgbuild --root pkg-staging/standalone \
+                   --identifier com.inferoplugins.hexstack.standalone \
+                   --version "$version" \
+                   pkg-components/HEXSTACK-standalone.pkg
+
+          productbuild \
+            --distribution installers/macos/distribution.xml \
+            --package-path  pkg-components \
+            --version       "$version" \
+            "release/HEXSTACK-macOS-${version}.pkg"
+
+          echo "Built: release/HEXSTACK-macOS-${version}.pkg"
+
+      - name: Upload macOS installer
         uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-macos-release
-          path: release/HEXSTACK-macos-*.zip
+          path: release/HEXSTACK-macOS-*.pkg
           if-no-files-found: error
 
   publish-release:
@@ -261,15 +261,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download packaged release bundles
+      - name: Download installers
         uses: actions/download-artifact@v5
         with:
           pattern: HEXSTACK-*-release
           path: release-assets
           merge-multiple: true
-
-      - name: Checkout repository files for packaging docs
-        uses: actions/checkout@v6
 
       - name: Resolve release tag
         id: meta
@@ -280,38 +277,7 @@ jobs:
           else
             tag="${{ github.ref_name }}"
           fi
-
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-
-          safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
-          if [ -z "$safe_tag" ]; then
-            safe_tag="release"
-          fi
-          echo "safe_tag=${safe_tag}" >> "$GITHUB_OUTPUT"
-
-      - name: Build all-platform installer bundle
-        shell: bash
-        env:
-          SAFE_TAG: ${{ steps.meta.outputs.safe_tag }}
-        run: |
-          mkdir -p combined/Windows combined/macOS
-
-          windows_zip=$(find release-assets -maxdepth 1 -type f -name 'HEXSTACK-windows-*.zip' | head -n 1)
-          mac_zip=$(find release-assets -maxdepth 1 -type f -name 'HEXSTACK-macos-*.zip' | head -n 1)
-          chooser_doc="docs/CHOOSE_YOUR_OS_FIRST.md"
-
-          test -n "$windows_zip" || { echo 'Windows release zip not found'; ls -la release-assets; exit 1; }
-          test -n "$mac_zip" || { echo 'macOS release zip not found'; ls -la release-assets; exit 1; }
-          test -f "$chooser_doc" || { echo "Chooser doc not found at $chooser_doc"; exit 1; }
-
-          unzip -q "$windows_zip" -d combined/Windows || { echo "Failed to unzip $windows_zip"; exit 1; }
-          unzip -q "$mac_zip" -d combined/macOS || { echo "Failed to unzip $mac_zip"; exit 1; }
-
-          cp "$chooser_doc" combined/CHOOSE_YOUR_OS_FIRST.md
-
-          combined_zip="release-assets/HEXSTACK-all-platforms-${SAFE_TAG}.zip"
-          rm -f "$combined_zip"
-          (cd combined && zip -qr "../${combined_zip}" .)
 
       - name: Create or update GitHub release
         shell: bash
@@ -321,10 +287,16 @@ jobs:
         run: |
           ls -la release-assets
 
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists. Uploading refreshed assets."
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG exists — uploading refreshed installers."
           else
-            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "HEXSTACK $RELEASE_TAG" \
+              --generate-notes
           fi
 
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            release-assets/* \
+            --clobber
