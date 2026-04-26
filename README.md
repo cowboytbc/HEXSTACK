@@ -40,7 +40,7 @@ After build, the VST3 plugin is generated in your build output under `Hexstack_a
 - Manual release path: run **Release HEXSTACK** from the Actions tab and provide a tag like `v0.2.0`.
 - Tag-driven release path: push a tag like `v0.2.0` and the workflow will package both platforms automatically.
 - macOS signing/notarization is optional; the release workflow still succeeds without Apple secrets, but the resulting macOS bundles will be unsigned and/or unnotarized.
-- Unsigned macOS builds are automatically labeled as beta (`HEXSTACK-macos-beta-<tag>.zip`) and include an install guide for testers.
+- Release assets now include platform-specific installer helpers plus an `HEXSTACK-all-platforms-<tag>.zip` bundle so users can choose Windows or macOS from one download.
 
 See `docs/RELEASE_PIPELINE.md` for the exact release secrets and workflow behavior.
 
