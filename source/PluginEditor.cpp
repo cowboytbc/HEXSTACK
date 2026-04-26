@@ -328,7 +328,12 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
                 juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
                                                        "Preset Save Failed",
                                                        "Could not save the .hex tone preset.");
+                return;
             }
+
+            // Update the combo to show the saved preset name immediately,
+            // so the user doesn't have to reload to see it.
+            safeThis->addOrRefreshUserHexEntry(presetName, file);
         });
     };
     addAndMakeVisible(saveHexButton);
@@ -2126,6 +2131,7 @@ void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& 
             activeUserHexIndex = i;
             rebuildPresetCombo();  // UI first — persistence is best-effort
             presetCombo.setSelectedId(numBuiltInPresets + i + 1, juce::dontSendNotification);
+            presetCombo.repaint();
             saveUserHexList();
             return;
         }
@@ -2142,6 +2148,7 @@ void HexstackAudioProcessorEditor::addOrRefreshUserHexEntry(const juce::String& 
     rebuildPresetCombo();  // UI first — persistence is best-effort
     presetCombo.setSelectedId(numBuiltInPresets + activeUserHexIndex + 1,
                                juce::dontSendNotification);
+    presetCombo.repaint();
     saveUserHexList();
 }
 
