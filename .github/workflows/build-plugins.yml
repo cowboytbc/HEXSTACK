@@ -42,7 +42,7 @@ jobs:
 
   build-macos:
     name: macOS AU + VST3 + Standalone
-    runs-on: macos-13
+    runs-on: macos-15
 
     steps:
       - name: Checkout
