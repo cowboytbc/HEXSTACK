@@ -388,13 +388,20 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     };
     addAndMakeVisible(helpButton);
 
-    voicingButton.setClickingTogglesState(true);
-    voicingButton.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
-    voicingButton.setColour(juce::TextButton::buttonOnColourId, engagedButtonColour);
-    voicingButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
-    voicingButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-    voicingButton.setTooltip("Toggle amp voicing: dark (off) = Rhythm, lit (on) = Lead.");
-    addAndMakeVisible(voicingButton);
+    voicingRhythmButton.setTooltip("Rhythm voicing: tighter, punchier response.");
+    voicingRhythmButton.onClick = [this]()
+    {
+        voicingLeadButton.setToggleState(false, juce::sendNotification);
+        voicingRhythmButton.setToggleState(true, juce::dontSendNotification);
+    };
+    addAndMakeVisible(voicingRhythmButton);
+
+    voicingLeadButton.setTooltip("Lead voicing: looser lows, brighter presence.");
+    voicingLeadButton.onStateChange = [this]()
+    {
+        voicingRhythmButton.setToggleState(!voicingLeadButton.getToggleState(), juce::dontSendNotification);
+    };
+    addAndMakeVisible(voicingLeadButton);
 
     lofiButton.setClickingTogglesState(true);
     lofiButton.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
@@ -811,7 +818,8 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     fxReverbPredelayAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxReverbPreDelayMs, fxReverbPredelaySlider);
     tunerRefAttachment = std::make_unique<ComboBoxAttachment>(state, ParamIDs::tunerReference, tunerRefCombo);
     tunerRangeAttachment = std::make_unique<ComboBoxAttachment>(state, ParamIDs::tunerRange, tunerRangeCombo);
-    voicingAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::voicing, voicingButton);
+    voicingLeadAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::voicing, voicingLeadButton);
+    voicingRhythmButton.setToggleState(!voicingLeadButton.getToggleState(), juce::dontSendNotification);
     lofiAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::lofi, lofiButton);
     postEqEnableAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::postEqEnabled, postEqEnableButton);
     lofiIntensityAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::lofiIntensity, lofiIntensityKnob);
@@ -1484,12 +1492,13 @@ void HexstackAudioProcessorEditor::resized()
         auto postEqRow = ampArea.removeFromTop(S(34));
         ampArea.removeFromTop(S(4));
 
-        // Voicing toggle — right-aligned in the postEqRow strip
+        // Voicing checkboxes — right-aligned in the postEqRow strip
         {
-            const int voicingW = S(80);
-            voicingButton.setBounds(postEqRow.getRight() - voicingW,
-                                    postEqRow.getY() + (postEqRow.getHeight() - S(24)) / 2,
-                                    voicingW, S(24));
+            const int voicingH = S(20);
+            const int voicingW = S(76);
+            const int voicingY = postEqRow.getY() + (postEqRow.getHeight() - voicingH) / 2;
+            voicingLeadButton.setBounds  (postEqRow.getRight() - voicingW,          voicingY, voicingW, voicingH);
+            voicingRhythmButton.setBounds(voicingLeadButton.getX() - voicingW - S(4), voicingY, voicingW, voicingH);
         }
 
         auto ampPreviewArea = visualAreaBelowTabs.toFloat().withTrimmedTop(visualAreaBelowTabs.getHeight() * 0.12f)
@@ -1783,7 +1792,7 @@ void HexstackAudioProcessorEditor::updateTabVisibility()
     juce::Component* ampControls[] = {
         &inputSlider, &driveSlider, &toneSlider, &micDistanceSlider, &micBlendSlider, &outputSlider, &depthSlider, &mixSlider,
         &inputLabel, &driveLabel, &toneLabel, &micDistanceLabel, &micBlendLabel, &outputLabel, &depthLabel, &mixLabel,
-        &loadIRButton, &clearIRButton, &saveHexButton, &loadHexButton, &voicingButton, &lofiButton, &postEqEnableButton, &irStatusLabel,
+        &loadIRButton, &clearIRButton, &saveHexButton, &loadHexButton, &voicingRhythmButton, &voicingLeadButton, &lofiButton, &postEqEnableButton, &irStatusLabel,
         &cabLowCutSlider, &cabHighCutSlider, &cabLowCutLabel, &cabHighCutLabel
     };
 

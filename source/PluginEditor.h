@@ -49,7 +49,8 @@ private:
     juce::TextButton saveHexButton { "Save .hex" };
     juce::TextButton loadHexButton { "Load .hex" };
     juce::TextButton helpButton { "?" };
-    juce::TextButton voicingButton { "LEAD" };
+    juce::ToggleButton voicingRhythmButton { "RHYTHM" };
+    juce::ToggleButton voicingLeadButton   { "LEAD" };
     juce::TextButton lofiButton { "LOFI" };
     juce::TextButton postEqEnableButton { "POST EQ" };
     juce::Slider lofiIntensityKnob;
@@ -205,7 +206,7 @@ private:
     std::unique_ptr<SliderAttachment> fxReverbPredelayAttachment;
     std::unique_ptr<ComboBoxAttachment> tunerRefAttachment;
     std::unique_ptr<ComboBoxAttachment> tunerRangeAttachment;
-    std::unique_ptr<ButtonAttachment> voicingAttachment;
+    std::unique_ptr<ButtonAttachment> voicingLeadAttachment;
     std::unique_ptr<ButtonAttachment> lofiAttachment;
     std::unique_ptr<ButtonAttachment> postEqEnableAttachment;
     std::unique_ptr<SliderAttachment> lofiIntensityAttachment;
