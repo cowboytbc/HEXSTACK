@@ -42,8 +42,8 @@ Name: "standalone"; Description: "Standalone Application Only"
 Name: "custom";     Description: "Custom Installation"; Flags: iscustom
 
 [Components]
-Name: "vst3";       Description: "VST3 Plugin{break}Installs HEXSTACK.vst3 to Common Files\VST3 for use in any DAW"; Types: full vst3only
-Name: "standalone"; Description: "Standalone Application{break}Run HEXSTACK without a DAW"; Types: full standalone
+Name: "vst3";       Description: "VST3 Plugin - Installs HEXSTACK.vst3 to Common Files\VST3 for use in any DAW"; Types: full vst3only
+Name: "standalone"; Description: "Standalone Application - Run HEXSTACK without a DAW"; Types: full standalone
 
 [Files]
 ; VST3 bundle — Source paths are relative to this .iss file (installers\windows\)
