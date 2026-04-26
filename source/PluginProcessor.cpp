@@ -2172,31 +2172,29 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         return;
     }
 
-    // ── Median filter: push raw estimate into 7-slot circular buffer ──────────
+    // ── 3-slot median on raw YIN output ────────────────────────────────────────
     tunerRawFreqHistory[tunerRawFreqHistoryPos] = frequency;
-    tunerRawFreqHistoryPos = (tunerRawFreqHistoryPos + 1) % 7;
-    if (tunerRawFreqHistoryCount < 7) ++tunerRawFreqHistoryCount;
+    tunerRawFreqHistoryPos = (tunerRawFreqHistoryPos + 1) % 3;
+    if (tunerRawFreqHistoryCount < 3) ++tunerRawFreqHistoryCount;
 
-    float sorted[7];
+    float sorted[3];
     std::copy(tunerRawFreqHistory, tunerRawFreqHistory + tunerRawFreqHistoryCount, sorted);
     std::sort(sorted, sorted + tunerRawFreqHistoryCount);
     const float medianFreq = sorted[tunerRawFreqHistoryCount / 2];
 
-    // ── Exponential smoothing on the median ────────────────────────────────────
-    float smoothing = 1.0f;
-    if (tunerSmoothedFrequencyHz > 0.0f)
-    {
-        const float relativeDelta = std::abs(medianFreq - tunerSmoothedFrequencyHz)
-                                  / juce::jmax(1.0f, tunerSmoothedFrequencyHz);
-        // Snap immediately when on a new note; gentle smoothing when settled
-        // so the cents needle tracks without jitter.
-        smoothing = (relativeDelta > 0.025f) ? 1.0f : 0.65f;
-    }
-    tunerSmoothedFrequencyHz = smoothing * medianFreq + (1.0f - smoothing) * tunerSmoothedFrequencyHz;
-
+    // ── Note from median, with stale-value flush on note change ───────────────
     const float referenceHz = getTunerReferenceHz();
-    const float semitone = 69.0f + 12.0f * std::log2(tunerSmoothedFrequencyHz / referenceHz);
-    const int rawMidiNote = juce::roundToInt(semitone);
+    const int rawMidiNote = juce::roundToInt(69.0f + 12.0f * std::log2(medianFreq / referenceHz));
+
+    // When the note changes, flush stale median values from the previous note
+    // so they can no longer drag the median back, and snap the display frequency.
+    if (tunerLastMidiNote >= 0 && std::abs(rawMidiNote - tunerLastMidiNote) > 1)
+    {
+        std::fill(std::begin(tunerRawFreqHistory), std::end(tunerRawFreqHistory), frequency);
+        tunerRawFreqHistoryPos = 0;
+        tunerRawFreqHistoryCount = 3;
+        tunerSmoothedFrequencyHz = frequency;
+    }
 
     if (rawMidiNote == tunerLastMidiNote)
         ++tunerStableFrames;
@@ -2206,15 +2204,21 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         tunerStableFrames = 1;
     }
 
-    // ── Committed note: only switch displayed note after 3 stable frames ──────
-    // This stops the note label from bouncing between adjacent semitones.
-    // Until a committed note exists, seed it so the display shows something.
-    if (tunerStableFrames >= 2)
+    // Commit note after first stable frame — YIN is accurate, no need for 2+
+    if (tunerStableFrames >= 1)
         tunerCommittedMidiNote = rawMidiNote;
     else if (tunerCommittedMidiNote < 0)
         tunerCommittedMidiNote = juce::jmax(rawMidiNote, 0);
 
     const int midiNote = tunerCommittedMidiNote;
+
+    // Light frequency smoothing for the cents-needle display only —
+    // does not affect note selection.
+    tunerSmoothedFrequencyHz = (tunerSmoothedFrequencyHz > 0.0f)
+        ? 0.7f * medianFreq + 0.3f * tunerSmoothedFrequencyHz
+        : medianFreq;
+
+    const float semitone = 69.0f + 12.0f * std::log2(tunerSmoothedFrequencyHz / referenceHz);
     const float cents = (semitone - static_cast<float>(midiNote)) * 100.0f;
 
     tunerHasSignal.store(true);

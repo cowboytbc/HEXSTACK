@@ -2162,10 +2162,12 @@ void HexstackAudioProcessorEditor::loadUserHexList()
 
     for (auto* entry : xml->getChildIterator())
     {
-        const auto entryName = entry->getStringAttribute("name");
-        const auto path      = entry->getStringAttribute("path");
-        if (entryName.isNotEmpty() && juce::File(path).existsAsFile())
-            userHexPresets.push_back({ entryName, juce::File(path) });
+        const juce::File file (entry->getStringAttribute("path"));
+        if (! file.existsAsFile())
+            continue;
+        // Always derive the display name from the filename — XML-stored names
+        // were historically saved as "Default" due to a now-fixed bug.
+        userHexPresets.push_back({ file.getFileNameWithoutExtension(), file });
     }
 }
 

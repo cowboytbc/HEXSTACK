@@ -158,7 +158,7 @@ private:
     int tunerStableFrames { 0 };
     int tunerSilenceFrames { 0 };
     int   tunerCommittedMidiNote   { -1 };  // last note confirmed for >= 3 frames
-    float tunerRawFreqHistory[7]   {};      // circular buffer for median filter
+    float tunerRawFreqHistory[3]   {};      // 3-slot circular median buffer
     int   tunerRawFreqHistoryPos   { 0 };
     int   tunerRawFreqHistoryCount { 0 };
 
