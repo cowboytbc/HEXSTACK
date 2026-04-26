@@ -31,12 +31,14 @@ The release workflow publishes:
 
 - `HEXSTACK-windows-<tag>.zip`
 - `HEXSTACK-macos-<tag>.zip`
+- `HEXSTACK-macos-beta-<tag>.zip` when macOS signing/notarization is not configured or intentionally skipped
 
 The macOS zip contains:
 
 - `HEXSTACK.app`
 - `HEXSTACK.vst3`
 - `HEXSTACK.component`
+- `READ_ME_FIRST_MAC_BETA.md`
 
 ## Optional Apple signing and notarization secrets
 
@@ -54,6 +56,8 @@ To enable macOS signing/notarization in GitHub Actions, add these repository sec
   - Your 10-character Apple Developer Team ID.
 
 If the certificate secrets are missing, the workflow still packages macOS bundles — they are just unsigned.
+
+When that happens, the packaged file is named `HEXSTACK-macos-beta-<tag>.zip` so it is clearly marked as a beta/unsigned Mac release.
 
 If the notarization secrets are missing, the workflow still packages macOS bundles — they are signed if possible, but not notarized.
 
@@ -74,3 +78,4 @@ Paste the copied output into the `APPLE_DEV_ID_APP_CERT_P12_BASE64` GitHub secre
 - The release workflow targets `macos-15` and packages universal macOS binaries (`arm64` + `x86_64`).
 - GitHub Releases are created or updated automatically by tag name.
 - For local/private test builds you can skip notarization and still download the packaged macOS zip from workflow artifacts.
+- Unsigned macOS beta builds include a bundled install guide to help testers get past Gatekeeper/quarantine friction.

@@ -50,6 +50,9 @@ jobs:
 
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
+          $safeTag = $tag -replace '[^A-Za-z0-9._-]', '-'
+          "SAFE_RELEASE_TAG=$safeTag" >> $env:GITHUB_ENV
+
       - name: Configure
         run: cmake -S . -B build
 
@@ -61,7 +64,7 @@ jobs:
         run: |
           $releaseRoot = Join-Path $PWD 'release'
           $bundleRoot = Join-Path $releaseRoot 'windows'
-          $zipPath = Join-Path $releaseRoot ("HEXSTACK-windows-$env:RELEASE_TAG.zip")
+          $zipPath = Join-Path $releaseRoot ("HEXSTACK-windows-$env:SAFE_RELEASE_TAG.zip")
 
           New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot 'Standalone') | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot 'VST3') | Out-Null
@@ -121,6 +124,26 @@ jobs:
 
           echo "RELEASE_TAG=${tag}" >> "$GITHUB_ENV"
 
+          safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
+          echo "SAFE_RELEASE_TAG=${safe_tag}" >> "$GITHUB_ENV"
+
+      - name: Resolve macOS release mode
+        shell: bash
+        run: |
+          package_name="HEXSTACK-macos-${SAFE_RELEASE_TAG}.zip"
+          package_mode="signed"
+
+          if [ -z "$APPLE_DEV_ID_APP_CERT_P12_BASE64" ] || [ -z "$APPLE_DEV_ID_APP_CERT_PASSWORD" ]; then
+            package_name="HEXSTACK-macos-beta-${SAFE_RELEASE_TAG}.zip"
+            package_mode="unsigned-beta"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.notarize_macos }}" != "true" ]; then
+            package_name="HEXSTACK-macos-beta-${SAFE_RELEASE_TAG}.zip"
+            package_mode="manual-beta"
+          fi
+
+          echo "MACOS_PACKAGE_NAME=${package_name}" >> "$GITHUB_ENV"
+          echo "MACOS_PACKAGE_MODE=${package_mode}" >> "$GITHUB_ENV"
+
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
@@ -147,6 +170,7 @@ jobs:
           cp -R "${standalone_path}" release/macos/
           cp -R "${vst3_path}" release/macos/
           cp -R "${au_path}" release/macos/
+          cp docs/MAC_BETA_INSTALL.md release/macos/READ_ME_FIRST_MAC_BETA.md
 
       - name: Report signing mode
         shell: bash
@@ -156,6 +180,8 @@ jobs:
           else
             echo "Developer ID certificate secrets not configured. macOS bundles will be packaged unsigned."
           fi
+
+          echo "macOS package mode: $MACOS_PACKAGE_MODE"
 
       - name: Import Developer ID certificate
         if: (github.event_name != 'workflow_dispatch' || inputs.notarize_macos) && env.APPLE_DEV_ID_APP_CERT_P12_BASE64 != '' && env.APPLE_DEV_ID_APP_CERT_PASSWORD != ''
@@ -213,7 +239,7 @@ jobs:
       - name: Package macOS bundles
         shell: bash
         run: |
-          zip_path="release/HEXSTACK-macos-${RELEASE_TAG}.zip"
+          zip_path="release/${MACOS_PACKAGE_NAME}"
           rm -f "$zip_path"
           ditto -c -k --keepParent release/macos "$zip_path"
 
