@@ -2218,17 +2218,15 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
 
     const int midiNote = tunerCommittedMidiNote;
 
-    // Light frequency smoothing for the cents-needle display only —
-    // does not affect note selection.
-    tunerSmoothedFrequencyHz = (tunerSmoothedFrequencyHz > 0.0f)
-        ? 0.7f * medianFreq + 0.3f * tunerSmoothedFrequencyHz
-        : medianFreq;
-
-    const float semitone = 69.0f + 12.0f * std::log2(tunerSmoothedFrequencyHz / referenceHz);
+    // Cents computed directly from medianFreq (the same value used for midiNote).
+    // Using tunerSmoothedFrequencyHz here caused the needle to swing ±50c after
+    // octave-error frames because the smoothed value lagged behind the committed note.
+    // The UI needle already does its own 0.34-coefficient smoothing for display.
+    const float semitone = 69.0f + 12.0f * std::log2(medianFreq / referenceHz);
     const float cents = (semitone - static_cast<float>(midiNote)) * 100.0f;
 
     tunerHasSignal.store(true);
-    tunerFrequencyHz.store(tunerSmoothedFrequencyHz);
+    tunerFrequencyHz.store(medianFreq);
     tunerCentsOffset.store(cents);
     tunerMidiNote.store(midiNote);
 }

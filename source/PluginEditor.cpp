@@ -2,6 +2,7 @@
 #include "BinaryData.h"
 
 #include <cmath>
+#include <unordered_map>
 
 namespace ParamIDs
 {
@@ -386,6 +387,55 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
         });
     };
     addAndMakeVisible(loadHexButton);
+
+    renameHexButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(42, 42, 52).withAlpha(0.90f));
+    renameHexButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
+    renameHexButton.setTooltip("Rename the selected user preset.");
+    renameHexButton.onClick = [this]
+    {
+        const int selectedId = presetCombo.getSelectedId();
+        const int userIdx = selectedId - numBuiltInPresets - 1;
+        if (userIdx < 0 || userIdx >= static_cast<int>(userHexPresets.size()))
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
+                                                   "Rename Preset",
+                                                   "Select a user preset in the dropdown first.");
+            return;
+        }
+
+        const juce::String currentName = userHexPresets[static_cast<size_t>(userIdx)].name;
+
+        // Shared state captured by both the AlertWindow scope and the callbacks.
+        struct RenameState
+        {
+            juce::Component::SafePointer<HexstackAudioProcessorEditor> editor;
+            int idx;
+        };
+        auto state = std::make_shared<RenameState>(RenameState { this, userIdx });
+
+        auto* alert = new juce::AlertWindow("Rename Preset",
+                                            "New name for: " + currentName,
+                                            juce::AlertWindow::NoIcon);
+        alert->addTextEditor("name", currentName, {});
+        alert->addButton("OK",     1, juce::KeyPress(juce::KeyPress::returnKey));
+        alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+        // Capture the AlertWindow pointer so we can read the text editor after modal closes.
+        auto* alertPtr = alert;
+        alert->enterModalState(true,
+            juce::ModalCallbackFunction::create([state, alertPtr](int result)
+            {
+                const juce::String newName = alertPtr->getTextEditorContents("name").trim();
+                if (result == 1 && newName.isNotEmpty() && state->editor != nullptr
+                    && state->idx < static_cast<int>(state->editor->userHexPresets.size()))
+                {
+                    state->editor->userHexPresets[static_cast<size_t>(state->idx)].name = newName;
+                    state->editor->rebuildPresetCombo(state->editor->numBuiltInPresets + state->idx + 1);
+                    state->editor->saveUserHexList();
+                }
+            }), true);
+    };
+    addAndMakeVisible(renameHexButton);
 
     helpButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(26, 26, 30));
     helpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke.withAlpha(0.70f));
@@ -1421,6 +1471,8 @@ void HexstackAudioProcessorEditor::resized()
     saveHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
     topTabsArea.removeFromLeft(S(6));
     loadHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
+    topTabsArea.removeFromLeft(S(6));
+    renameHexButton.setBounds(topTabsArea.removeFromLeft(S(76)));
     auto tabsRight = topTabsArea.removeFromRight(S(330));
     auto lofiButtonBounds = tabsRight.removeFromLeft(S(86));
     lofiButton.setBounds(lofiButtonBounds);
@@ -2193,14 +2245,30 @@ void HexstackAudioProcessorEditor::loadUserHexList()
         if (! file.existsAsFile())
             continue;
 
-        // Prefer the XML-stored display name (set by the user or derived at save time).
-        // Fall back to the filename only when the XML name is empty or is the old
-        // default sentinel "Default" that was baked in by a previous bug.
+        // Prefer the XML-stored display name if it is non-empty and not the old
+        // "Default" sentinel that an earlier bug baked into every saved preset.
         juce::String name = entry->getStringAttribute("name");
         if (name.isEmpty() || name.equalsIgnoreCase("Default"))
             name = file.getFileNameWithoutExtension();
 
         userHexPresets.push_back({ name, file });
+    }
+
+    // Deduplicate display names: when several entries share the same name
+    // (e.g. all files are called "Default.hex"), suffix them so the user can
+    // tell them apart — "Default (1)", "Default (2)", etc.
+    std::unordered_map<juce::String, int> nameCount;
+    for (const auto& e : userHexPresets)
+        ++nameCount[e.name];
+
+    std::unordered_map<juce::String, int> nameSeen;
+    for (auto& e : userHexPresets)
+    {
+        if (nameCount[e.name] > 1)
+        {
+            const int idx = ++nameSeen[e.name];
+            e.name = e.name + " (" + juce::String(idx) + ")";
+        }
     }
 }
 

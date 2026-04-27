@@ -48,6 +48,7 @@ private:
     juce::TextButton clearIRButton { "X" };
     juce::TextButton saveHexButton { "Save .hex" };
     juce::TextButton loadHexButton { "Load .hex" };
+    juce::TextButton renameHexButton { "Rename" };
     juce::TextButton helpButton { "?" };
     juce::ToggleButton voicingRhythmButton { "RHYTHM" };
     juce::ToggleButton voicingLeadButton   { "LEAD" };
