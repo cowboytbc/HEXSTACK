@@ -446,7 +446,7 @@ namespace PresetData
     static const std::array<Preset, 3> presets {
         Preset { "Default", 11.0f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
                  false, false, false, false, false,
-                 0.0f,
+                 0.25f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  360.0f, 0.16f, 0.24f, 0.18f, 0.08f,
                  0.16f, 0.72f, 0.18f, 8.0f,
