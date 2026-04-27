@@ -519,8 +519,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     presetCombo.setColour(juce::ComboBox::backgroundColourId, juce::Colours::black.withAlpha(0.45f));
     presetCombo.setColour(juce::ComboBox::textColourId, juce::Colours::whitesmoke);
     presetCombo.setColour(juce::ComboBox::outlineColourId, juce::Colour::fromRGB(150, 20, 32).withAlpha(0.82f));
-    presetCombo.setEditableText(true);  // allows typing a new name to rename the active user preset
-    presetCombo.setTooltip("Select a preset. Type a new name and press Enter to rename the active user preset.");
+    presetCombo.setTooltip("Select a preset. Use the Rename button to rename a user preset.");
 
     numBuiltInPresets = audioProcessor.getNumPrograms();
     loadUserHexList();
@@ -551,24 +550,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     presetCombo.onChange = [this]
     {
         const int selectedId = presetCombo.getSelectedId();
-
-        // selectedId == 0 means the user typed a custom string (editable-combo rename).
-        // If a user preset is active, treat the typed text as a rename command.
-        if (selectedId == 0)
-        {
-            const auto newName = presetCombo.getText().trim();
-            if (newName.isNotEmpty()
-                && activeUserHexIndex >= 0
-                && activeUserHexIndex < static_cast<int>(userHexPresets.size()))
-            {
-                userHexPresets[static_cast<size_t>(activeUserHexIndex)].name = newName;
-                rebuildPresetCombo(numBuiltInPresets + activeUserHexIndex + 1);
-                saveUserHexList();
-            }
-            return;
-        }
-
-        if (selectedId < 0)
+        if (selectedId <= 0)
             return;
 
         if (selectedId <= numBuiltInPresets)
