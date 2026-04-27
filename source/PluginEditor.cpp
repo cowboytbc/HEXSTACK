@@ -388,54 +388,8 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     };
     addAndMakeVisible(loadHexButton);
 
-    renameHexButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(42, 42, 52).withAlpha(0.90f));
-    renameHexButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
-    renameHexButton.setTooltip("Rename the selected user preset.");
-    renameHexButton.onClick = [this]
-    {
-        const int selectedId = presetCombo.getSelectedId();
-        const int userIdx = selectedId - numBuiltInPresets - 1;
-        if (userIdx < 0 || userIdx >= static_cast<int>(userHexPresets.size()))
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
-                                                   "Rename Preset",
-                                                   "Select a user preset in the dropdown first.");
-            return;
-        }
-
-        const juce::String currentName = userHexPresets[static_cast<size_t>(userIdx)].name;
-
-        // Shared state captured by both the AlertWindow scope and the callbacks.
-        struct RenameState
-        {
-            juce::Component::SafePointer<HexstackAudioProcessorEditor> editor;
-            int idx;
-        };
-        auto state = std::make_shared<RenameState>(RenameState { this, userIdx });
-
-        auto* alert = new juce::AlertWindow("Rename Preset",
-                                            "New name for: " + currentName,
-                                            juce::AlertWindow::NoIcon);
-        alert->addTextEditor("name", currentName, {});
-        alert->addButton("OK",     1, juce::KeyPress(juce::KeyPress::returnKey));
-        alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-
-        // Capture the AlertWindow pointer so we can read the text editor after modal closes.
-        auto* alertPtr = alert;
-        alert->enterModalState(true,
-            juce::ModalCallbackFunction::create([state, alertPtr](int result)
-            {
-                const juce::String newName = alertPtr->getTextEditorContents("name").trim();
-                if (result == 1 && newName.isNotEmpty() && state->editor != nullptr
-                    && state->idx < static_cast<int>(state->editor->userHexPresets.size()))
-                {
-                    state->editor->userHexPresets[static_cast<size_t>(state->idx)].name = newName;
-                    state->editor->rebuildPresetCombo(state->editor->numBuiltInPresets + state->idx + 1);
-                    state->editor->saveUserHexList();
-                }
-            }), true);
-    };
-    addAndMakeVisible(renameHexButton);
+    // Right-click the preset combo to rename the selected user preset.
+    presetCombo.addMouseListener(this, false);
 
     helpButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(26, 26, 30));
     helpButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke.withAlpha(0.70f));
@@ -1453,8 +1407,6 @@ void HexstackAudioProcessorEditor::resized()
     saveHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
     topTabsArea.removeFromLeft(S(6));
     loadHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
-    topTabsArea.removeFromLeft(S(6));
-    renameHexButton.setBounds(topTabsArea.removeFromLeft(S(76)));
     auto tabsRight = topTabsArea.removeFromRight(S(330));
     auto lofiButtonBounds = tabsRight.removeFromLeft(S(86));
     lofiButton.setBounds(lofiButtonBounds);
@@ -1989,6 +1941,66 @@ void HexstackAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
     }
 
     AudioProcessorEditor::mouseUp(event);
+}
+
+void HexstackAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
+{
+    // Right-click on the preset combo = rename the active user preset.
+    if (event.eventComponent == &presetCombo && event.mods.isRightButtonDown())
+    {
+        const int selectedId = presetCombo.getSelectedId();
+        const int userIdx = selectedId - numBuiltInPresets - 1;
+
+        juce::PopupMenu menu;
+        if (userIdx >= 0 && userIdx < static_cast<int>(userHexPresets.size()))
+        {
+            menu.addItem(1, "Rename \"" + userHexPresets[static_cast<size_t>(userIdx)].name + "\"...");
+        }
+        else
+        {
+            menu.addItem(1, "Rename preset...", false);  // greyed out — no user preset selected
+        }
+
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(presetCombo),
+            [this, userIdx](int result)
+            {
+                if (result != 1 || userIdx < 0 || userIdx >= static_cast<int>(userHexPresets.size()))
+                    return;
+
+                const juce::String currentName = userHexPresets[static_cast<size_t>(userIdx)].name;
+
+                struct RenameState
+                {
+                    juce::Component::SafePointer<HexstackAudioProcessorEditor> editor;
+                    int idx;
+                };
+                auto state = std::make_shared<RenameState>(RenameState { this, userIdx });
+
+                auto* alert = new juce::AlertWindow("Rename Preset",
+                                                    "New name for: " + currentName,
+                                                    juce::AlertWindow::NoIcon);
+                alert->addTextEditor("name", currentName, {});
+                alert->addButton("OK",     1, juce::KeyPress(juce::KeyPress::returnKey));
+                alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+                auto* alertPtr = alert;
+                alert->enterModalState(true,
+                    juce::ModalCallbackFunction::create([state, alertPtr](int r)
+                    {
+                        const juce::String newName = alertPtr->getTextEditorContents("name").trim();
+                        if (r == 1 && newName.isNotEmpty() && state->editor != nullptr
+                            && state->idx < static_cast<int>(state->editor->userHexPresets.size()))
+                        {
+                            state->editor->userHexPresets[static_cast<size_t>(state->idx)].name = newName;
+                            state->editor->rebuildPresetCombo(state->editor->numBuiltInPresets + state->idx + 1);
+                            state->editor->saveUserHexList();
+                        }
+                    }), true);
+            });
+        return;  // don't pass right-click through to the combo
+    }
+
+    AudioProcessorEditor::mouseDown(event);
 }
 
 void HexstackAudioProcessorEditor::updateTunerDisplay()

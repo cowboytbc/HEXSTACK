@@ -12,6 +12,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
 
 private:
@@ -48,7 +49,6 @@ private:
     juce::TextButton clearIRButton { "X" };
     juce::TextButton saveHexButton { "Save .hex" };
     juce::TextButton loadHexButton { "Load .hex" };
-    juce::TextButton renameHexButton { "Rename" };
     juce::TextButton helpButton { "?" };
     juce::ToggleButton voicingRhythmButton { "RHYTHM" };
     juce::ToggleButton voicingLeadButton   { "LEAD" };
