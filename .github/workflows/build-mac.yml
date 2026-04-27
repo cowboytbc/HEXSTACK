@@ -1,0 +1,63 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:   # lets you trigger a build manually from GitHub
+
+jobs:
+  build-macos:
+    runs-on: macos-14   # Apple Silicon (M1) runner
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Xcode ───────────────────────────────────────────────────────────────
+      - name: Select Xcode 15
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # ── Configure ───────────────────────────────────────────────────────────
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Xcode \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHEXSTACK_COPY_PLUGIN_AFTER_BUILD=ON
+
+      # ── Build (VST3 + Standalone + AU) ──────────────────────────────────────
+      - name: Build Release
+        run: |
+          cmake --build build --config Release \
+            --target Hexstack_VST3 Hexstack_AU Hexstack_Standalone \
+            -- -jobs 4
+
+      # ── Collect artefacts ───────────────────────────────────────────────────
+      - name: Collect build outputs
+        run: |
+          mkdir -p dist/macOS/VST3
+          mkdir -p dist/macOS/AU
+          mkdir -p dist/macOS/Standalone
+
+          cp -R "DELIVERABLES/macOS/VST3/HEXSTACK.vst3"   dist/macOS/VST3/ 2>/dev/null || true
+          cp -R "DELIVERABLES/macOS/AU/HEXSTACK.component" dist/macOS/AU/  2>/dev/null || true
+          cp -R "DELIVERABLES/macOS/Standalone/HEXSTACK.app" dist/macOS/Standalone/ 2>/dev/null || true
+
+          # Fallback: grab straight from artefacts folder
+          find build/Hexstack_artefacts/Release -name "*.vst3"     -exec cp -R {} dist/macOS/VST3/ \; 2>/dev/null || true
+          find build/Hexstack_artefacts/Release -name "*.component" -exec cp -R {} dist/macOS/AU/  \; 2>/dev/null || true
+          find build/Hexstack_artefacts/Release -name "*.app"       -exec cp -R {} dist/macOS/Standalone/ \; 2>/dev/null || true
+
+          echo "── dist layout ──"
+          find dist -maxdepth 4 | sort
+
+      # ── Upload as a GitHub Actions artefact ─────────────────────────────────
+      # Download from the Actions tab on github.com/cowboytbc/HEXSTACK
+      - name: Upload macOS builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEXSTACK-macOS-${{ github.sha }}
+          path: dist/macOS/
+          retention-days: 90
