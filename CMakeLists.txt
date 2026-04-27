@@ -125,7 +125,12 @@ target_compile_definitions(Hexstack
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        $<$<BOOL:${WIN32}>:JUCE_ASIO=1>
 )
+
+if(WIN32)
+    target_include_directories(Hexstack PRIVATE "${CMAKE_SOURCE_DIR}/ASIOSDK/common")
+endif()
 
 target_link_libraries(Hexstack
     PRIVATE
