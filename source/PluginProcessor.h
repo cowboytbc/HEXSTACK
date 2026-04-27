@@ -90,7 +90,7 @@ private:
     static std::vector<float> phaseAlignIRToReference(const std::vector<float>& reference, std::vector<float> candidate);
     static juce::MemoryBlock createWavFromSamples(const std::vector<float>& samples, int sampleRate, int numChannels = 1);
     void analyzeTunerInput(const juce::AudioBuffer<float>& buffer);
-    float estimateFrequencyYIN(const float* samples, int numSamples) const;
+    float estimateFrequencyYIN(const float* samples, int numSamples);
 
     juce::AudioProcessorValueTreeState parameters;
 
@@ -150,6 +150,8 @@ private:
 
     std::vector<float> tunerCaptureBuffer;
     std::vector<float> tunerWindowBuffer;
+    std::vector<float> yinDiffBuf;       // pre-allocated: avoids audio-thread heap alloc
+    std::vector<float> yinNormBuf;       // same
     int tunerCaptureWritePos { 0 };
     int tunerCaptureValidSamples { 0 };
     int tunerSamplesSinceLastAnalysis { 0 };
@@ -157,7 +159,7 @@ private:
     int tunerLastMidiNote { -1 };
     int tunerStableFrames { 0 };
     int tunerSilenceFrames { 0 };
-    int   tunerCommittedMidiNote   { -1 };  // last note confirmed for >= 3 frames
+    int   tunerCommittedMidiNote   { -1 };
     float tunerRawFreqHistory[3]   {};      // 3-slot circular median buffer
     int   tunerRawFreqHistoryPos   { 0 };
     int   tunerRawFreqHistoryCount { 0 };

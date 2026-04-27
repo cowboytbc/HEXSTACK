@@ -968,6 +968,10 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     constexpr int tunerWindowSize = 8192;
     tunerCaptureBuffer.assign(tunerCaptureSize, 0.0f);
     tunerWindowBuffer.assign(tunerWindowSize, 0.0f);
+    // Pre-allocate YIN work buffers at half-window size to avoid audio-thread heap alloc.
+    const int yinHalf = tunerWindowSize / 2;
+    yinDiffBuf.assign(static_cast<size_t>(yinHalf + 1), 0.0f);
+    yinNormBuf.assign(static_cast<size_t>(yinHalf + 1), 0.0f);
     tunerCaptureWritePos = 0;
     tunerCaptureValidSamples = 0;
     tunerSamplesSinceLastAnalysis = 0;
@@ -2180,7 +2184,9 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     float sorted[3];
     std::copy(tunerRawFreqHistory, tunerRawFreqHistory + tunerRawFreqHistoryCount, sorted);
     std::sort(sorted, sorted + tunerRawFreqHistoryCount);
-    const float medianFreq = sorted[tunerRawFreqHistoryCount / 2];
+    // Use lower median: for count=2 this gives sorted[0] (lower value) which
+    // is more likely the fundamental than the harmonic.
+    const float medianFreq = sorted[(tunerRawFreqHistoryCount - 1) / 2];
 
     // ── Note from median, with stale-value flush on note change ───────────────
     const float referenceHz = getTunerReferenceHz();
@@ -2233,7 +2239,7 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
 // period) is always deeper than the minimum at lag=T/2 (octave up).
 // This replaces the NSDF+MPM approach which failed when harmonics had higher
 // correlation than the fundamental (common on guitar with heavy picking).
-float HexstackAudioProcessor::estimateFrequencyYIN(const float* samples, int numSamples) const
+float HexstackAudioProcessor::estimateFrequencyYIN(const float* samples, int numSamples)
 {
     if (samples == nullptr || numSamples < 256 || currentSampleRate <= 0.0)
         return 0.0f;
@@ -2256,14 +2262,18 @@ float HexstackAudioProcessor::estimateFrequencyYIN(const float* samples, int num
             break;
     }
 
-    // W = half the buffer so samples[n+tau] is always in-bounds for n in [0,W)
-    const int W       = numSamples / 2;
-    const int minTau  = juce::jlimit(2, W - 1, static_cast<int>(currentSampleRate / maxFrequency));
-    const int maxTau  = juce::jlimit(minTau + 1, W - 1, static_cast<int>(currentSampleRate / minFrequency));
+    const int W      = numSamples / 2;
+    const int minTau = juce::jlimit(2, W - 1, static_cast<int>(currentSampleRate / maxFrequency));
+    const int maxTau = juce::jlimit(minTau + 1, W - 1, static_cast<int>(currentSampleRate / minFrequency));
+
+    // Use pre-allocated work buffers (avoid heap alloc in audio thread).
+    // They are sized to W+1 in prepareToPlay.
+    if (static_cast<int>(yinDiffBuf.size()) < maxTau + 1
+        || static_cast<int>(yinNormBuf.size()) < maxTau + 1)
+        return 0.0f;  // not yet prepared
 
     // ── Step 2: difference function ─────────────────────────────────────────
-    // d(tau) = sum_{n=0}^{W-1} (x[n] - x[n+tau])^2
-    std::vector<float> d(static_cast<size_t>(maxTau + 1), 0.0f);
+    yinDiffBuf[0] = 0.0f;
     for (int tau = 1; tau <= maxTau; ++tau)
     {
         float sum = 0.0f;
@@ -2272,52 +2282,50 @@ float HexstackAudioProcessor::estimateFrequencyYIN(const float* samples, int num
             const float diff = samples[n] - samples[n + tau];
             sum += diff * diff;
         }
-        d[static_cast<size_t>(tau)] = sum;
+        yinDiffBuf[static_cast<size_t>(tau)] = sum;
     }
 
     // ── Step 3: cumulative mean normalized difference (CMNDF) ────────────────
-    // d'(0) = 1
-    // d'(tau) = d(tau) * tau / sum_{j=1}^{tau} d(j)
-    std::vector<float> dnorm(static_cast<size_t>(maxTau + 1), 0.0f);
-    dnorm[0] = 1.0f;
-    double runningSum = 0.0;
+    yinNormBuf[0] = 1.0f;
+    float runningSum = 0.0f;
     for (int tau = 1; tau <= maxTau; ++tau)
     {
-        runningSum += d[static_cast<size_t>(tau)];
-        dnorm[static_cast<size_t>(tau)] = (runningSum > 0.0)
-            ? static_cast<float>(d[static_cast<size_t>(tau)] * tau / runningSum)
+        runningSum += yinDiffBuf[static_cast<size_t>(tau)];
+        yinNormBuf[static_cast<size_t>(tau)] = (runningSum > 0.0f)
+            ? yinDiffBuf[static_cast<size_t>(tau)] * static_cast<float>(tau) / runningSum
             : 1.0f;
     }
 
-    // ── Step 4: first dip below threshold (absolute pitch detection) ─────────
-    // Standard threshold 0.10–0.15.  Lower = more conservative (silent if unsure).
-    constexpr float yinThreshold = 0.12f;
+    // ── Step 4: absolute threshold ───────────────────────────────────────────
+    // 0.20 is more lenient than the original 0.12 and handles real guitar signals
+    // whose CMNDF dip often sits in the 0.12-0.20 range due to inharmonicity.
+    constexpr float yinThreshold = 0.20f;
     int bestTau = -1;
 
     for (int tau = minTau; tau <= maxTau - 1; ++tau)
     {
-        if (dnorm[static_cast<size_t>(tau)] < yinThreshold)
+        if (yinNormBuf[static_cast<size_t>(tau)] < yinThreshold)
         {
-            // slide to the local minimum of this dip
+            // Slide to local minimum of this dip
             while (tau + 1 <= maxTau
-                   && dnorm[static_cast<size_t>(tau + 1)] < dnorm[static_cast<size_t>(tau)])
+                   && yinNormBuf[static_cast<size_t>(tau + 1)] < yinNormBuf[static_cast<size_t>(tau)])
                 ++tau;
             bestTau = tau;
             break;
         }
     }
 
-    // Nothing below strict threshold — use global minimum with a looser gate
-    // to handle signals that are close-but-not-quite periodic (e.g. with vibrato).
+    // Fallback: use global minimum — no hard gate so marginal signals still display.
     if (bestTau < 0)
     {
         int gMin = minTau;
         for (int tau = minTau + 1; tau <= maxTau; ++tau)
-            if (dnorm[static_cast<size_t>(tau)] < dnorm[static_cast<size_t>(gMin)])
+            if (yinNormBuf[static_cast<size_t>(tau)] < yinNormBuf[static_cast<size_t>(gMin)])
                 gMin = tau;
 
-        if (dnorm[static_cast<size_t>(gMin)] > 0.30f)
-            return 0.0f;   // signal is too noisy / unpitched
+        // Only reject if the signal is truly unpitched (> 0.45 = very high aperiodicity).
+        if (yinNormBuf[static_cast<size_t>(gMin)] > 0.45f)
+            return 0.0f;
 
         bestTau = gMin;
     }
@@ -2325,19 +2333,16 @@ float HexstackAudioProcessor::estimateFrequencyYIN(const float* samples, int num
     if (bestTau <= 0)
         return 0.0f;
 
-    // ── Step 5: parabolic interpolation for sub-sample accuracy ─────────────
+    // ── Step 5: parabolic interpolation (Aubio-corrected formula) ────────────
     float refinedTau = static_cast<float>(bestTau);
     if (bestTau > minTau && bestTau < maxTau)
     {
-        const float y1 = dnorm[static_cast<size_t>(bestTau - 1)];
-        const float y2 = dnorm[static_cast<size_t>(bestTau)];
-        const float y3 = dnorm[static_cast<size_t>(bestTau + 1)];
-        const float denom = y1 - 2.0f * y2 + y3;
+        const float s0 = yinNormBuf[static_cast<size_t>(bestTau - 1)];
+        const float s1 = yinNormBuf[static_cast<size_t>(bestTau)];
+        const float s2 = yinNormBuf[static_cast<size_t>(bestTau + 1)];
+        const float denom = 2.0f * (2.0f * s1 - s2 - s0);
         if (std::abs(denom) > 1.0e-8f)
-        {
-            const float delta = 0.5f * (y1 - y3) / denom;
-            refinedTau += juce::jlimit(-0.5f, 0.5f, delta);
-        }
+            refinedTau += juce::jlimit(-0.5f, 0.5f, (s2 - s0) / denom);
     }
 
     if (refinedTau <= 0.0f)
