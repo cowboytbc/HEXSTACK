@@ -443,20 +443,27 @@ namespace PresetData
         std::array<float, 10> postEq;
     };
 
-    static const std::array<Preset, 2> presets {
-        Preset { "Default", 0.0f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
+    static const std::array<Preset, 3> presets {
+        Preset { "Default", 11.0f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
                  false, false, false, false, false,
-                 0.63f,
+                 0.0f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  360.0f, 0.16f, 0.24f, 0.18f, 0.08f,
                  0.16f, 0.72f, 0.18f, 8.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
-        Preset { "DIRTY CLEAN BOY", -17.66f, 0.0f, 3.65f, -3.54f, 3.25f, 2.06f, 0.796f, -15.0f,
+        Preset { "DIRTY CLEAN BOY", 4.0f, 0.0f, 3.65f, -3.54f, 3.25f, 2.06f, 0.796f, -15.0f,
                  true, false, false, true, true,
                  0.0f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  540.0f, 0.521f, 0.088f, 0.116f, 0.08f,
                  0.296f, 0.72f, 0.38f, 12.0f,
+                 { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
+        Preset { "LEADER OF COLA MASTER", -13.5f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
+                 false, false, false, false, false,
+                 0.0f,
+                 0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
+                 360.0f, 0.16f, 0.24f, 0.18f, 0.08f,
+                 0.16f, 0.72f, 0.18f, 8.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } }
     };
 }
