@@ -303,8 +303,14 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
                              | juce::FileBrowserComponent::canSelectFiles
                              | juce::FileBrowserComponent::warnAboutOverwriting;
 
+        // Suggest a unique timestamped filename so the dialog doesn't default to
+        // the last-used name (which was historically "Default").
+        const auto suggestedFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                                       .getChildFile("HEXSTACK Presets")
+                                       .getChildFile("Tone_" + juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S") + ".hex");
+
         presetChooser = std::make_unique<juce::FileChooser>("Save HEXSTACK Tone",
-                                                             juce::File(),
+                                                             suggestedFile,
                                                              "*.hex");
 
         presetChooser->launchAsync(flags, [safeThis](const juce::FileChooser& chooser)
@@ -463,7 +469,8 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     presetCombo.setColour(juce::ComboBox::backgroundColourId, juce::Colours::black.withAlpha(0.45f));
     presetCombo.setColour(juce::ComboBox::textColourId, juce::Colours::whitesmoke);
     presetCombo.setColour(juce::ComboBox::outlineColourId, juce::Colour::fromRGB(150, 20, 32).withAlpha(0.82f));
-    presetCombo.setTooltip("Select a modern metal / death metal / deathcore preset.");
+    presetCombo.setEditableText(true);  // allows typing a new name to rename the active user preset
+    presetCombo.setTooltip("Select a preset. Type a new name and press Enter to rename the active user preset.");
 
     numBuiltInPresets = audioProcessor.getNumPrograms();
     loadUserHexList();
@@ -494,7 +501,24 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     presetCombo.onChange = [this]
     {
         const int selectedId = presetCombo.getSelectedId();
-        if (selectedId <= 0)
+
+        // selectedId == 0 means the user typed a custom string (editable-combo rename).
+        // If a user preset is active, treat the typed text as a rename command.
+        if (selectedId == 0)
+        {
+            const auto newName = presetCombo.getText().trim();
+            if (newName.isNotEmpty()
+                && activeUserHexIndex >= 0
+                && activeUserHexIndex < static_cast<int>(userHexPresets.size()))
+            {
+                userHexPresets[static_cast<size_t>(activeUserHexIndex)].name = newName;
+                rebuildPresetCombo(numBuiltInPresets + activeUserHexIndex + 1);
+                saveUserHexList();
+            }
+            return;
+        }
+
+        if (selectedId < 0)
             return;
 
         if (selectedId <= numBuiltInPresets)
@@ -2168,9 +2192,15 @@ void HexstackAudioProcessorEditor::loadUserHexList()
         const juce::File file (entry->getStringAttribute("path"));
         if (! file.existsAsFile())
             continue;
-        // Always derive the display name from the filename — XML-stored names
-        // were historically saved as "Default" due to a now-fixed bug.
-        userHexPresets.push_back({ file.getFileNameWithoutExtension(), file });
+
+        // Prefer the XML-stored display name (set by the user or derived at save time).
+        // Fall back to the filename only when the XML name is empty or is the old
+        // default sentinel "Default" that was baked in by a previous bug.
+        juce::String name = entry->getStringAttribute("name");
+        if (name.isEmpty() || name.equalsIgnoreCase("Default"))
+            name = file.getFileNameWithoutExtension();
+
+        userHexPresets.push_back({ name, file });
     }
 }
 
