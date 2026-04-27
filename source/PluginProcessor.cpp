@@ -458,7 +458,7 @@ namespace PresetData
                  540.0f, 0.521f, 0.088f, 0.116f, 0.08f,
                  0.296f, 0.72f, 0.38f, 12.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
-        Preset { "LEADER OF COLA MASTER", 5.0f, 0.708f, 3.07f, -3.64f, 1.71f, 1.68f, 0.656f, -13.5f,
+        Preset { "LEADer of Cola", 5.0f, 0.708f, 3.07f, -3.64f, 1.71f, 1.68f, 0.656f, -13.5f,
                  false, false, true, true, true,
                  0.37f,
                  0.644f, 0.436f, -4.36f, 1.0f, 0.0f,
@@ -2580,6 +2580,12 @@ bool HexstackAudioProcessor::applyLoadedStateTree(const juce::ValueTree& tree)
         currentProgramIndex = juce::jlimit(0, getNumPrograms() - 1, static_cast<int>(tree.getProperty(StateKeys::programIndex)));
     else
         currentProgramIndex = inferProgramIndexFromState(tree);
+
+    // If the saved state was on a built-in preset (no .hex file), re-apply the
+    // canonical preset values so that version updates to built-in presets are
+    // always reflected instead of showing stale saved parameter values.
+    if (tree.getProperty("hexFilePath", "").toString().isEmpty())
+        setCurrentProgram(currentProgramIndex);
 
     const auto source = tree.getProperty(StateKeys::irSource).toString();
     const auto path = tree.getProperty(StateKeys::irPath).toString();
