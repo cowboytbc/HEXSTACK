@@ -30,6 +30,8 @@ DisableDirPage=yes
 
 OutputDir=.
 OutputBaseFilename=HEXSTACK_Installer_v{#AppVersion}_Windows
+SetupIconFile=..\AMP.ico
+WizardSmallImageFile=..\AMP.png
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
