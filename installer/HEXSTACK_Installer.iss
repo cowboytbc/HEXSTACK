@@ -132,7 +132,7 @@ begin
     'Choose the folder where HEXSTACK.exe will be placed.',
     False, '');
   StandaloneDirPage.Add('Standalone folder:');
-  StandaloneDirPage.Values[0] := ExpandConstant('{autopf}\INFERNO PLUGINS\HEXSTACK');
+  StandaloneDirPage.Values[0] := ExpandConstant('{autopf}\INFERNO TONES\HEXSTACK');
 end;
 
 { Hide the Standalone dir page if the Standalone component is not selected }

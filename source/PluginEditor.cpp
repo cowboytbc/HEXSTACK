@@ -1065,8 +1065,47 @@ void HexstackAudioProcessorEditor::paint(juce::Graphics& g)
                 backgroundImage.getWidth(),
                 backgroundImage.getHeight());
 
-        g.setColour(juce::Colours::black.withAlpha(0.25f));
+        // --- Cinematic grade (background image only) ---
+
+        // 1. Slight overall darkening to ground the image
+        g.setColour(juce::Colours::black.withAlpha(0.18f));
         g.fillRoundedRectangle(topVisualArea, 12.0f);
+
+        // 2. Subtle cool/teal colour grade — lifts shadows toward blue-green like a film print
+        g.setColour(juce::Colour::fromRGB(10, 30, 40).withAlpha(0.18f));
+        g.fillRoundedRectangle(topVisualArea, 12.0f);
+
+        // 3. Vignette — radial darkness creeping in from all four edges
+        {
+            const float vx = topVisualArea.getX();
+            const float vy = topVisualArea.getY();
+            const float vw = topVisualArea.getWidth();
+            const float vh = topVisualArea.getHeight();
+
+            // Left edge
+            juce::ColourGradient vigL(juce::Colours::black.withAlpha(0.38f), vx, vy + vh * 0.5f,
+                                      juce::Colours::transparentBlack,  vx + vw * 0.38f, vy + vh * 0.5f, false);
+            g.setGradientFill(vigL);
+            g.fillRoundedRectangle(topVisualArea, 12.0f);
+
+            // Right edge
+            juce::ColourGradient vigR(juce::Colours::black.withAlpha(0.38f), vx + vw, vy + vh * 0.5f,
+                                      juce::Colours::transparentBlack,  vx + vw * 0.62f, vy + vh * 0.5f, false);
+            g.setGradientFill(vigR);
+            g.fillRoundedRectangle(topVisualArea, 12.0f);
+
+            // Top edge
+            juce::ColourGradient vigT(juce::Colours::black.withAlpha(0.30f), vx + vw * 0.5f, vy,
+                                      juce::Colours::transparentBlack,  vx + vw * 0.5f, vy + vh * 0.32f, false);
+            g.setGradientFill(vigT);
+            g.fillRoundedRectangle(topVisualArea, 12.0f);
+
+            // Bottom edge
+            juce::ColourGradient vigB(juce::Colours::black.withAlpha(0.42f), vx + vw * 0.5f, vy + vh,
+                                      juce::Colours::transparentBlack,  vx + vw * 0.5f, vy + vh * 0.62f, false);
+            g.setGradientFill(vigB);
+            g.fillRoundedRectangle(topVisualArea, 12.0f);
+        }
     }
     else
     {
