@@ -2123,6 +2123,13 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
     const int numChannels = juce::jmax(1, juce::jmin(buffer.getNumChannels(), getTotalNumInputChannels()));
     const int numSamples = buffer.getNumSamples();
 
+    // Apply the Input knob gain so the tuner sees the same signal level as the amp.
+    // In standalone, the raw interface level is often 10-20 dB quieter than in a DAW
+    // (where the DAW bus pre-conditions the signal).  Without this, low-output guitars
+    // fall below the YIN noise floor even if the amp sounds fine.
+    const float inputGainLinear = juce::Decibels::decibelsToGain(
+        parameters.getRawParameterValue(ParamIDs::input)->load());
+
     double sumSquares = 0.0;
 
     for (int i = 0; i < numSamples; ++i)
@@ -2131,7 +2138,7 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
         for (int ch = 0; ch < numChannels; ++ch)
             mono += buffer.getReadPointer(ch)[i];
 
-        mono /= static_cast<float>(numChannels);
+        mono = (mono / static_cast<float>(numChannels)) * inputGainLinear;
 
         tunerCaptureBuffer[static_cast<size_t>(tunerCaptureWritePos)] = mono;
         tunerCaptureWritePos = (tunerCaptureWritePos + 1) % static_cast<int>(tunerCaptureBuffer.size());

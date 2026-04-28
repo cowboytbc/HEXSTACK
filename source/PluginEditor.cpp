@@ -2015,7 +2015,12 @@ void HexstackAudioProcessorEditor::updateTunerDisplay()
     {
         tunerNoteLabel.setText("--", juce::dontSendNotification);
         tunerFreqLabel.setText("", juce::dontSendNotification);
-        tunerCentsLabel.setText("Waiting for signal", juce::dontSendNotification);
+
+        // Show input level so the user can tell whether signal is reaching the tuner.
+        const juce::String levelText = tuner.levelDb > -99.0f
+            ? "No note detected  •  " + juce::String(tuner.levelDb, 1) + " dB"
+            : "Waiting for signal";
+        tunerCentsLabel.setText(levelText, juce::dontSendNotification);
         tunerCentsLabel.setColour(juce::Label::textColourId, juce::Colours::whitesmoke.withAlpha(0.65f));
         tunerCentsMeter.setValue(0.0, juce::dontSendNotification);
         tunerCentsMeter.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(120, 120, 128));
