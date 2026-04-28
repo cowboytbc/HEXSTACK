@@ -1055,6 +1055,12 @@ void HexstackAudioProcessorEditor::paint(juce::Graphics& g)
         const float drawX = topVisualArea.getX() + (targetW - drawW) * 0.5f;
         const float drawY = topVisualArea.getY() + (targetH - drawH) * 0.5f;
 
+        // Clip both the image and grade to topVisualArea so cover-scale overflow
+        // doesn't bleed into other regions and the grade covers exactly the image.
+        {
+        juce::Graphics::ScopedSaveState clipState(g);
+        g.reduceClipRegion(topVisualArea.toNearestInt());
+
         g.drawImage(backgroundImage,
                 juce::roundToInt(drawX),
                 juce::roundToInt(drawY),
@@ -1106,6 +1112,7 @@ void HexstackAudioProcessorEditor::paint(juce::Graphics& g)
             g.setGradientFill(vigB);
             g.fillRoundedRectangle(topVisualArea, 12.0f);
         }
+        } // end clip scope
     }
     else
     {
