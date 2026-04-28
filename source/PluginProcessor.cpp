@@ -2109,7 +2109,7 @@ HexstackAudioProcessor::TunerRangeMode HexstackAudioProcessor::getTunerRangeMode
 
 void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& buffer)
 {
-    if (buffer.getNumChannels() <= 0 || buffer.getNumSamples() < 64 || currentSampleRate <= 0.0
+    if (buffer.getNumChannels() <= 0 || buffer.getNumSamples() <= 0 || currentSampleRate <= 0.0
         || tunerCaptureBuffer.empty() || tunerWindowBuffer.empty())
     {
         tunerHasSignal.store(false);
