@@ -247,12 +247,12 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     setupHorizontalSlider(cabHighCutSlider, cabHighCutLabel, "HIGH CUT");
     cabLowCutSlider.setRange(20.0, 500.0, 0.01);
     cabHighCutSlider.setRange(1000.0, 20000.0, 0.01);
-    cabLowCutSlider.setTooltip("High-passes the cabinet path so you can trim sub and low-end buildup after the cab IR.");
-    cabHighCutSlider.setTooltip("Low-passes the cabinet path so you can smooth fizz and top-end hash after the cab IR.");
+    cabLowCutSlider.setTooltip("Rolls off the low end of the cab tone.");
+    cabHighCutSlider.setTooltip("Rolls off the top end of the cab tone.");
 
     loadIRButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(168, 14, 28).withAlpha(0.9f));
     loadIRButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
-    loadIRButton.setTooltip("Load a third-party cabinet impulse response file.");
+    loadIRButton.setTooltip("Load a cabinet IR file.");
     loadIRButton.onClick = [this]
     {
         auto safeThis = juce::Component::SafePointer<HexstackAudioProcessorEditor>(this);
@@ -402,7 +402,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     };
     addAndMakeVisible(helpButton);
 
-    voicingRhythmButton.setTooltip("Rhythm voicing: tighter, punchier response.");
+    voicingRhythmButton.setTooltip("Rhythm voicing.");
     voicingRhythmButton.onClick = [this]()
     {
         voicingLeadButton.setToggleState(false, juce::sendNotification);
@@ -410,7 +410,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     };
     addAndMakeVisible(voicingRhythmButton);
 
-    voicingLeadButton.setTooltip("Lead voicing: looser lows, brighter presence.");
+    voicingLeadButton.setTooltip("Lead voicing.");
     voicingLeadButton.onStateChange = [this]()
     {
         voicingRhythmButton.setToggleState(!voicingLeadButton.getToggleState(), juce::dontSendNotification);
@@ -436,7 +436,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     postEqEnableButton.setColour(juce::TextButton::buttonOnColourId, engagedButtonColour);
     postEqEnableButton.setColour(juce::TextButton::textColourOffId, juce::Colours::whitesmoke);
     postEqEnableButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-    postEqEnableButton.setTooltip("Enable or bypass the 10-band post-cab EQ for surgical tone shaping.");
+    postEqEnableButton.setTooltip("Enable or bypass the post-cab equalizer.");
     postEqEnableButton.onStateChange = [this]
     {
         refreshPostEqControlState();
@@ -444,18 +444,18 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     addAndMakeVisible(postEqEnableButton);
 
     setupKnob(lofiIntensityKnob, lofiIntensityLabel, "INTENSITY");
-    lofiIntensityKnob.setTooltip("Controls how extreme the megaphone effect gets, from a little horn bark to full blown shouted-through-a-PA attitude.");
+    lofiIntensityKnob.setTooltip("Controls the intensity of the megaphone effect.");
 
     setupKnob(stfuKnob, stfuLabel, "STFU");
     stfuKnob.setTooltip("Silences unwanted noise and feedback between notes.");
 
     setupKnob(tapeSatKnob, tapeSatLabel, "TAPE SAT");
-    tapeSatKnob.setTooltip("Tape-style soft saturation applied before the cab filters. Adds warmth and 2nd-harmonic even-order distortion characteristic of ferric tape.");
+    tapeSatKnob.setTooltip("Adds warmth and harmonic color to your tone.");
     addAndMakeVisible(tapeSatKnob);
     addAndMakeVisible(tapeSatLabel);
 
     setupKnob(limiterKnob, limiterLabel, "LIMITER");
-    limiterKnob.setTooltip("Output brickwall peak limiter. Turn up to tame transients and reduce peak levels. The ceiling auto-follows the master volume knob.");
+    limiterKnob.setTooltip("Output limiter. Controls peak output level.");
     addAndMakeVisible(limiterKnob);
     addAndMakeVisible(limiterLabel);
 
@@ -675,7 +675,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
 
         juce::String tooltip = "Post-cab EQ band at ";
         tooltip << postEqDisplayNames[i];
-        tooltip << ((i <= 4) ? " Hz. Tighten lows and low mids after the cab." : " band. Shape upper mids and highs after the cab.");
+        tooltip << ((i <= 4) ? " Hz." : ".");
         postEqBandSliders[i].setTooltip(tooltip);
     }
 
@@ -698,7 +698,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     fxDelaySyncButton.setColour(juce::ToggleButton::textColourId, juce::Colours::whitesmoke);
     fxDelaySyncButton.setColour(juce::ToggleButton::tickColourId, juce::Colour::fromRGB(210, 34, 52));
     fxDelaySyncButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour::fromRGB(88, 88, 96));
-    fxDelaySyncButton.setTooltip("Locks delay time to the host tempo and time signature. The Time knob selects musical divisions when sync is enabled.");
+    fxDelaySyncButton.setTooltip("Sync delay time to host tempo.");
     addAndMakeVisible(fxDelaySyncButton);
     setupKnob(fxReverbSizeSlider, fxReverbSizeLabel, "Size");
     setupKnob(fxReverbDampSlider, fxReverbDampLabel, "Damp");
@@ -728,32 +728,32 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
 
     fxPitchShiftSlider.setTooltip("Changes pitch amount in semitones.");
     fxPitchMixSlider.setTooltip("Blends dry and the mono pitch-shifted signal.");
-    fxPitchWidthSlider.setTooltip("At low settings it adds a subtle 80s-style clean chorus; turn it up for wider, wetter stereo movement. With Shift at zero it works as a chorus control.");
+    fxPitchWidthSlider.setTooltip("Controls stereo width and movement.");
     fxWahFreqSlider.setTooltip("Controls the wah sweep position (main wah effect).");
-    fxWahQSlider.setTooltip("Sets resonance/sharpness of the wah peak.");
-    fxWahMixSlider.setTooltip("Blends dry and wah-filtered signal.");
+    fxWahQSlider.setTooltip("Sets the sharpness of the wah effect.");
+    fxWahMixSlider.setTooltip("Blends dry signal and wah effect.");
     fxDriveAmountSlider.setTooltip("Sets overdrive gain amount.");
     fxDriveToneSlider.setTooltip("Sets overdrive brightness.");
     fxDriveLevelSlider.setTooltip("Sets overdrive output level.");
     fxDriveMixSlider.setTooltip("Blends clean and overdriven signal.");
-    fxDriveTightSlider.setTooltip("Tightens low end before clipping.");
-    fxDelayTimeSlider.setTooltip("Sets delay repeat time in milliseconds, or selects the host-synced rhythmic division when Sync To Host is enabled.");
+    fxDriveTightSlider.setTooltip("Shapes the low-end character of the overdrive.");
+    fxDelayTimeSlider.setTooltip("Sets the delay repeat time, or rhythmic division when sync is enabled.");
     fxDelayFeedbackSlider.setTooltip("Sets how many repeats are heard.");
     fxDelayToneSlider.setTooltip("Sets brightness of delay repeats.");
     fxDelayMixSlider.setTooltip("Blends dry signal and delay repeats.");
     fxDelayWidthSlider.setTooltip("Sets stereo width of delay repeats.");
     fxReverbSizeSlider.setTooltip("Sets room size.");
-    fxReverbDampSlider.setTooltip("Sets high-frequency damping of the reverb tail.");
+    fxReverbDampSlider.setTooltip("Controls the brightness of the reverb tail.");
     fxReverbMixSlider.setTooltip("Blends dry signal and reverb.");
-    fxReverbPredelaySlider.setTooltip("Sets the small pre-delay before the reverb bloom; lower values keep it from sounding like a delay.");
+    fxReverbPredelaySlider.setTooltip("Sets the delay before the reverb tail begins.");
 
-    inputSlider.setTooltip("Input trim before amp gain stages.");
+    inputSlider.setTooltip("Input gain before the amp.");
     driveSlider.setTooltip("Main preamp gain amount.");
     toneSlider.setTooltip("Low-end response of the amp.");
     micDistanceSlider.setTooltip("Midrange body and cut.");
     micBlendSlider.setTooltip("High-end brightness and attack.");
-    outputSlider.setTooltip("Upper high control in the power section.");
-    depthSlider.setTooltip("Adds tuned post-cab low-end resonance and thump without flooding the whole mix.");
+    outputSlider.setTooltip("Upper harmonic presence control.");
+    depthSlider.setTooltip("Adds low-end weight and thump.");
     mixSlider.setTooltip("Final output level.");
 
     cabLowCutSlider.textFromValueFunction = [](double value)
