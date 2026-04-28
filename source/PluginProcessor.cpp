@@ -610,7 +610,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
                                         0.0f));
     layout.push_back(makeFloatParam(ParamIDs::fxWahFreq,
-                                    "FX WAH Freq",
+                                    "FX WAH Sweep",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
                                     0.42f));
     layout.push_back(makeFloatParam(ParamIDs::fxWahQ,
@@ -701,12 +701,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
                                     0.0f));
 
     layout.push_back(makeFloatParam(ParamIDs::stfu,
-                                    "STFU",
+                                    "Gate",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
                                     defaultPreset.gate));
 
     layout.push_back(makeFloatParam(ParamIDs::tapeSaturation,
-                                    "Tape Saturation",
+                                    "Tape Sat",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
                                     0.0f));
 
