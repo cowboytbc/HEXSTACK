@@ -52,6 +52,7 @@ namespace ParamIDs
     static constexpr auto lofi = "lofi";
     static constexpr auto lofiIntensity = "lofiIntensity";
     static constexpr auto stfu = "stfu";
+    static constexpr auto tapeSaturation = "tapeSaturation";
 }
 
 namespace
@@ -447,6 +448,11 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     setupKnob(stfuKnob, stfuLabel, "STFU");
     stfuKnob.setTooltip("Silences unwanted noise and feedback between notes.");
 
+    setupKnob(tapeSatKnob, tapeSatLabel, "TAPE SAT");
+    tapeSatKnob.setTooltip("Tape-style soft saturation applied before the cab filters. Adds warmth and 2nd-harmonic even-order distortion characteristic of ferric tape.");
+    addAndMakeVisible(tapeSatKnob);
+    addAndMakeVisible(tapeSatLabel);
+
     auto setupTabButton = [disengagedButtonColour, engagedButtonColour](juce::TextButton& button)
     {
         button.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
@@ -836,6 +842,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     postEqEnableAttachment = std::make_unique<ButtonAttachment>(state, ParamIDs::postEqEnabled, postEqEnableButton);
     lofiIntensityAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::lofiIntensity, lofiIntensityKnob);
     stfuAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::stfu, stfuKnob);
+    tapeSatAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::tapeSaturation, tapeSatKnob);
 
     for (size_t i = 0; i < postEqBandAttachments.size(); ++i)
         postEqBandAttachments[i] = std::make_unique<SliderAttachment>(state, postEqParamIds[i], postEqBandSliders[i]);
@@ -1435,6 +1442,9 @@ void HexstackAudioProcessorEditor::resized()
         const int stfuX = loadIRButton.getBounds().getCentreX() - stfuWidth / 2;
         stfuKnob.setBounds(stfuX, loadIRButton.getBottom() + S(2), stfuWidth, stfuHeight);
         stfuLabel.setBounds(stfuX, loadIRButton.getBottom() + S(2) + stfuHeight, stfuWidth, S(18));
+        const int tapeSatX = stfuX + stfuWidth + S(8);
+        tapeSatKnob.setBounds(tapeSatX, loadIRButton.getBottom() + S(2), stfuWidth, stfuHeight);
+        tapeSatLabel.setBounds(tapeSatX, loadIRButton.getBottom() + S(2) + stfuHeight, stfuWidth, S(18));
     }
     topTabsArea.removeFromLeft(S(6));
     saveHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
@@ -1858,6 +1868,8 @@ void HexstackAudioProcessorEditor::updateTabVisibility()
     lofiIntensityLabel.setVisible(lofiButton.getToggleState());
     stfuKnob.setVisible(showAmp);
     stfuLabel.setVisible(showAmp);
+    tapeSatKnob.setVisible(showAmp);
+    tapeSatLabel.setVisible(showAmp);
 
     tunerPanelLabel.setVisible(false);
     tunerRefLabel.setVisible(showTuner);

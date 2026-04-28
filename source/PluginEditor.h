@@ -58,6 +58,8 @@ private:
     juce::Label lofiIntensityLabel;
     juce::Slider stfuKnob;
     juce::Label stfuLabel;
+    juce::Slider tapeSatKnob;
+    juce::Label tapeSatLabel;
     juce::TextButton ampTabButton { "AMP" };
     juce::TextButton tunerTabButton { "TUNER" };
     juce::TextButton fxTabButton { "FX" };
@@ -214,6 +216,7 @@ private:
     std::unique_ptr<ButtonAttachment> postEqEnableAttachment;
     std::unique_ptr<SliderAttachment> lofiIntensityAttachment;
     std::unique_ptr<SliderAttachment> stfuAttachment;
+    std::unique_ptr<SliderAttachment> tapeSatAttachment;
     std::array<std::unique_ptr<SliderAttachment>, 10> postEqBandAttachments;
 
     void loadBackgroundImage();

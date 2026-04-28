@@ -356,6 +356,7 @@ namespace ParamIDs
     static constexpr auto lofi = "lofi";
     static constexpr auto lofiIntensity = "lofiIntensity";
     static constexpr auto stfu = "stfu";
+    static constexpr auto tapeSaturation = "tapeSaturation";
 }
 
 namespace
@@ -703,6 +704,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
                                     defaultPreset.gate));
 
+    layout.push_back(makeFloatParam(ParamIDs::tapeSaturation,
+                                    "Tape Saturation",
+                                    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
+                                    0.0f));
+
     return { layout.begin(), layout.end() };
 }
 
@@ -792,6 +798,7 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
     setBoolParam(ParamIDs::voicing, false);  // default to Rhythm
     setBoolParam(ParamIDs::lofi, false);
     setFloatParam(ParamIDs::stfu, preset.gate);
+    setFloatParam(ParamIDs::tapeSaturation, 0.0f);
     setFloatParam(ParamIDs::lofiIntensity, 0.0f);
     setFloatParam(ParamIDs::fxPitchShift, 0.0f);
     setFloatParam(ParamIDs::fxPitchMix, 1.0f);
@@ -1098,6 +1105,7 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const bool delayOn = isFxPedalEnabled(4);
     const bool lofiOn = getParameterValue(ParamIDs::lofi, 0.0f) >= 0.5f;
     const float stfuKnobVal = getParameterValue(ParamIDs::stfu, 0.0f);
+    const float tapeSatIntensity = juce::jlimit(0.0f, 1.0f, getParameterValue(ParamIDs::tapeSaturation, 0.0f));
 
     const float pitchShift = getParameterValue(ParamIDs::fxPitchShift, -2.0f);
     const float pitchMix = getParameterValue(ParamIDs::fxPitchMix, 0.82f);
@@ -1435,7 +1443,24 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         {
             const float cabSample = data[sample];
             const float cabPushed = std::tanh((cabSample + 0.06f * cabSample * cabSample) * cabPunchDrive) * 1.02f;
-            const float speakerVoiced = juce::jmap(cabPunchBlend, cabSample, cabPushed);
+            float speakerVoiced = juce::jmap(cabPunchBlend, cabSample, cabPushed);
+
+            // Tape saturation — applied before the cab low/high-cut filters so that
+            // any added harmonics are shaped by the same frequency roll-off as the cab.
+            // Uses tanh soft-clipping with a small 2nd-harmonic asymmetry bias to
+            // mimic the even-order distortion characteristic of ferric tape saturation.
+            if (tapeSatIntensity > 0.005f)
+            {
+                const float drive      = 1.0f + tapeSatIntensity * 4.0f;  // 1.0 – 5.0
+                const float asymBias   = 0.06f * tapeSatIntensity;        // small 2nd-harmonic term
+                const float driven     = speakerVoiced * drive
+                                       + asymBias * speakerVoiced * speakerVoiced;
+                // Normalise: tanh(drive) is the saturated output for a unity input;
+                // dividing by it keeps perceived level approximately constant.
+                const float makeupGain = 1.0f / std::tanh(drive);
+                speakerVoiced = juce::jlimit(-1.25f, 1.25f, std::tanh(driven) * makeupGain);
+            }
+
             const float cabTrimmed = cabHighCutFilters[channel].processSample(cabLowCutFilters[channel].processSample(speakerVoiced));
             const float thumped = thumpResonanceFilters[channel].processSample(cabTrimmed);
             data[sample] = juce::jlimit(-1.25f, 1.25f, depthShelfFilters[channel].processSample(thumped));
