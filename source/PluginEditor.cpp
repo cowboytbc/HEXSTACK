@@ -462,7 +462,8 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     limiterGrLabel.setFont(juce::Font(juce::FontOptions{}.withHeight(14.0f).withStyle("Bold")));
     limiterGrLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 100, 60));
     limiterGrLabel.setJustificationType(juce::Justification::centred);
-    limiterGrLabel.setText("0.0", juce::dontSendNotification);
+    limiterGrLabel.setText("-0.0", juce::dontSendNotification);
+    limiterGrLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(limiterGrLabel);
 
     auto setupTabButton = [disengagedButtonColour, engagedButtonColour](juce::TextButton& button)
@@ -2192,9 +2193,9 @@ void HexstackAudioProcessorEditor::timerCallback()
     {
         const float grDb = audioProcessor.getLimiterGainReductionDb();
         if (grDb < -0.05f)
-            limiterGrLabel.setText(juce::String(grDb, 1), juce::dontSendNotification);
+            limiterGrLabel.setText("-" + juce::String(std::abs(grDb), 1), juce::dontSendNotification);
         else
-            limiterGrLabel.setText("0.0", juce::dontSendNotification);
+            limiterGrLabel.setText("-0.0", juce::dontSendNotification);
     }
 }
 

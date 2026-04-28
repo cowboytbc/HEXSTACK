@@ -1795,7 +1795,10 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const float limIntensity = juce::jlimit(0.0f, 1.0f, getParameterValue(ParamIDs::limiter, 0.0f));
     if (limIntensity > 0.005f)
     {
-        const float ceilingLin  = juce::jlimit(1e-6f, 0.99f, outputGain);
+        // At low intensity the ceiling is close to 0 dBFS (gentle catch);
+        // at full intensity the ceiling tracks the master volume (aggressive).
+        const float hardCeiling = juce::jlimit(1e-6f, 0.99f, outputGain);
+        const float ceilingLin  = hardCeiling + (0.99f - hardCeiling) * (1.0f - limIntensity);
         const float limAttCoeff = std::expf(-1.0f / (0.0001f * static_cast<float>(currentSampleRate)));  // ~0.1 ms attack
         const float limRelCoeff = std::expf(-1.0f / (0.100f  * static_cast<float>(currentSampleRate)));  // ~100 ms release
 
