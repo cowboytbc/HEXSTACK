@@ -63,6 +63,8 @@ private:
     juce::Slider limiterKnob;
     juce::Label limiterLabel;
     juce::Label limiterGrLabel;
+    juce::Slider makeupGainSlider;
+    juce::Label makeupGainLabel;
     juce::TextButton ampTabButton { "AMP" };
     juce::TextButton tunerTabButton { "TUNER" };
     juce::TextButton fxTabButton { "FX" };
@@ -221,6 +223,7 @@ private:
     std::unique_ptr<SliderAttachment> stfuAttachment;
     std::unique_ptr<SliderAttachment> tapeSatAttachment;
     std::unique_ptr<SliderAttachment> limiterAttachment;
+    std::unique_ptr<SliderAttachment> makeupGainAttachment;
     std::array<std::unique_ptr<SliderAttachment>, 10> postEqBandAttachments;
 
     void loadBackgroundImage();

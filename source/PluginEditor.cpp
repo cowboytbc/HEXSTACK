@@ -54,6 +54,7 @@ namespace ParamIDs
     static constexpr auto stfu = "stfu";
     static constexpr auto tapeSaturation = "tapeSaturation";
     static constexpr auto limiter = "limiter";
+    static constexpr auto makeupGain = "makeupGain";
 }
 
 namespace
@@ -463,6 +464,14 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     limiterGrLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(limiterGrLabel);
 
+    setupEqBandSlider(makeupGainSlider, makeupGainLabel, "MAKEUP");
+    makeupGainSlider.setRange(-24.0, 24.0, 0.1);
+    makeupGainSlider.setValue(0.0);
+    makeupGainSlider.setTooltip("Makeup gain applied after the limiter (+/-24 dB).");
+    makeupGainSlider.setTextValueSuffix(" dB");
+    addAndMakeVisible(makeupGainSlider);
+    addAndMakeVisible(makeupGainLabel);
+
     auto setupTabButton = [disengagedButtonColour, engagedButtonColour](juce::TextButton& button)
     {
         button.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
@@ -854,6 +863,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     stfuAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::stfu, stfuKnob);
     tapeSatAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::tapeSaturation, tapeSatKnob);
     limiterAttachment  = std::make_unique<SliderAttachment>(state, ParamIDs::limiter, limiterKnob);
+    makeupGainAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::makeupGain, makeupGainSlider);
 
     for (size_t i = 0; i < postEqBandAttachments.size(); ++i)
         postEqBandAttachments[i] = std::make_unique<SliderAttachment>(state, postEqParamIds[i], postEqBandSliders[i]);
@@ -1459,6 +1469,11 @@ void HexstackAudioProcessorEditor::resized()
         const int limiterGrX = limiterX + stfuWidth / 2 - S(24);
         const int limiterGrY = loadIRButton.getBottom() + S(2) + stfuHeight / 2 - S(9);
         limiterGrLabel.setBounds(limiterGrX, limiterGrY, S(48), S(18));
+        // Makeup gain vertical slider to the right of the limiter knob
+        const int makeupX = limiterX + stfuWidth + S(6);
+        const int makeupSliderH = stfuHeight + S(18); // same total height as knob+label
+        makeupGainLabel.setBounds(makeupX, loadIRButton.getBottom() + S(2), S(52), S(14));
+        makeupGainSlider.setBounds(makeupX, loadIRButton.getBottom() + S(2) + S(14), S(52), makeupSliderH - S(14));
     }
     topTabsArea.removeFromLeft(S(6));
     saveHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
@@ -1887,6 +1902,8 @@ void HexstackAudioProcessorEditor::updateTabVisibility()
     limiterKnob.setVisible(showAmp);
     limiterLabel.setVisible(showAmp);
     limiterGrLabel.setVisible(showAmp);
+    makeupGainSlider.setVisible(showAmp);
+    makeupGainLabel.setVisible(showAmp);
 
     tunerPanelLabel.setVisible(false);
     tunerRefLabel.setVisible(showTuner);

@@ -358,6 +358,7 @@ namespace ParamIDs
     static constexpr auto stfu = "stfu";
     static constexpr auto tapeSaturation = "tapeSaturation";
     static constexpr auto limiter = "limiter";
+    static constexpr auto makeupGain = "makeupGain";
 }
 
 namespace
@@ -713,6 +714,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
     layout.push_back(makeFloatParam(ParamIDs::limiter,
                                     "Limiter",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
+                                    0.0f));
+
+    layout.push_back(makeFloatParam(ParamIDs::makeupGain,
+                                    "Makeup Gain",
+                                    juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f),
                                     0.0f));
 
     return { layout.begin(), layout.end() };
@@ -1832,6 +1838,18 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     {
         limiterEnvelope.fill(0.0f);
         limiterGainReductionDb.store(0.0f, std::memory_order_relaxed);
+    }
+
+    // Makeup gain — applied after limiter so it doesn't affect limiting threshold.
+    const float makeupDb  = getParameterValue(ParamIDs::makeupGain, 0.0f);
+    if (std::abs(makeupDb) > 0.01f)
+    {
+        const float makeupLinear = juce::Decibels::decibelsToGain(makeupDb);
+        for (int channel = 0; channel < totalNumInputChannels; ++channel)
+        {
+            float* data = buffer.getWritePointer(channel);
+            juce::FloatVectorOperations::multiply(data, makeupLinear, buffer.getNumSamples());
+        }
     }
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
