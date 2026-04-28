@@ -882,6 +882,8 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     stfuEnvelope.fill(0.0f);
     stfuGain.fill(1.0f);
     stfuHoldCounter.fill(0);
+    stfuHpfX.fill(0.0f);
+    stfuHpfY.fill(0.0f);
     pickTransientState.fill(0.0f);
     pitchChorusPhase  = 0.0f;
     pitchChorusPhase2 = juce::MathConstants<float>::pi;
@@ -976,6 +978,8 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     stfuEnvelope.fill(0.0f);
     stfuGain.fill(1.0f);
     stfuHoldCounter.fill(0);
+    stfuHpfX.fill(0.0f);
+    stfuHpfY.fill(0.0f);
     pickTransientState.fill(0.0f);
 
     constexpr int tunerCaptureSize = 16384;
@@ -1169,24 +1173,33 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const float overdriveTightAlpha = std::exp(-2.0f * juce::MathConstants<float>::pi * overdriveTightHz
                                                / static_cast<float>(currentSampleRate));
 
-    // STFU noise suppressor — downward expander on the input (gates noise before amp distorts it)
+    // STFU noise suppressor — downward expander with HPF sidechain
+    // The sidechain runs through an 80 Hz high-pass filter so low-frequency
+    // pickup/amp hum doesn't hold the gate open between notes.
+    // Hysteresis: opens at threshold, doesn't start closing until -4 dB below.
     if (stfuKnobVal > 0.005f)
     {
-        const float thresholdDb = -70.0f + stfuKnobVal * 55.0f + 1.5f * rhythmBias - 2.0f * leadBias;
-        const float threshold   = juce::Decibels::decibelsToGain(thresholdDb);
-        const float envWindowSeconds = 0.0048f - 0.0008f * rhythmBias + 0.0008f * leadBias;
-        const float attackSeconds = 0.0016f - 0.0003f * rhythmBias + 0.0002f * leadBias;
-        const float releaseSeconds = juce::jmap(stfuKnobVal, 0.180f, 0.065f) + 0.060f * leadBias;
-        // Hold: keep gate fully open after each note so the pick attack decays
-        // naturally before the gate starts to close.  Without hold, the expansion
-        // curve acts on the mid-decay signal and produces a high-freq "squeak".
-        const float holdSeconds = 0.080f + 0.010f * leadBias;
-        const int   holdSamples = juce::roundToInt(holdSeconds * static_cast<float>(currentSampleRate));
-        // Expansion power scales with knob: soft (r^2.5) at min → very hard (r^7) at max.
-        const float expansionPow = 2.5f + 4.5f * stfuKnobVal;
+        const float openThreshDb  = -70.0f + stfuKnobVal * 55.0f + 1.5f * rhythmBias - 2.0f * leadBias;
+        const float openThresh    = juce::Decibels::decibelsToGain(openThreshDb);
+        const float closeThresh   = openThresh * juce::Decibels::decibelsToGain(-4.0f); // 4 dB hysteresis
+
+        const float envWindowSeconds  = 0.0048f - 0.0008f * rhythmBias + 0.0008f * leadBias;
+        const float attackSeconds     = 0.0016f - 0.0003f * rhythmBias + 0.0002f * leadBias;
+        const float releaseSeconds    = juce::jmap(stfuKnobVal, 0.180f, 0.065f) + 0.060f * leadBias;
+        const float holdSeconds       = 0.080f + 0.010f * leadBias;
+        const int   holdSamples       = juce::roundToInt(holdSeconds * static_cast<float>(currentSampleRate));
+        const float expansionPow      = 2.5f + 4.5f * stfuKnobVal;
+        // Minimum gain floor: -80 dB — never fully mutes to avoid hard click artefacts.
+        const float minGain           = juce::Decibels::decibelsToGain(-80.0f);
+
         const float envCoeff    = std::exp(-1.0f / (envWindowSeconds * static_cast<float>(currentSampleRate)));
-        const float attackCoeff = std::exp(-1.0f / (attackSeconds * static_cast<float>(currentSampleRate)));
-        const float releaseCoeff= std::exp(-1.0f / (releaseSeconds * static_cast<float>(currentSampleRate)));
+        const float attackCoeff = std::exp(-1.0f / (attackSeconds    * static_cast<float>(currentSampleRate)));
+        const float releaseCoeff= std::exp(-1.0f / (releaseSeconds   * static_cast<float>(currentSampleRate)));
+
+        // Sidechain HPF: 1-pole bilinear at 80 Hz to reject pickup/amp hum.
+        const float hpfFc   = 80.0f;
+        const float hpfR    = 1.0f / std::tan(juce::MathConstants<float>::pi * hpfFc / static_cast<float>(currentSampleRate));
+        const float hpfAlpha = hpfR / (hpfR + 1.0f);
 
         for (int channel = 0; channel < totalNumInputChannels; ++channel)
         {
@@ -1194,28 +1207,38 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             const auto ch = static_cast<size_t>(channel);
             for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
             {
-                const float envIn = std::abs(data[sample]);
+                // --- Sidechain: HPF the input to remove low-freq hum ---
+                const float xIn       = data[sample];
+                const float hpfOut    = hpfAlpha * (stfuHpfY[ch] + xIn - stfuHpfX[ch]);
+                stfuHpfX[ch]          = xIn;
+                stfuHpfY[ch]          = hpfOut;
+
+                const float envIn = std::abs(hpfOut);
                 stfuEnvelope[ch] = envCoeff * stfuEnvelope[ch] + (1.0f - envCoeff) * envIn;
 
                 float targetGain;
-                if (stfuEnvelope[ch] >= threshold)
+                if (stfuEnvelope[ch] >= openThresh)
                 {
-                    // Above threshold: open gate and reset hold timer.
+                    // Above open threshold: gate fully open, reset hold timer.
                     targetGain = 1.0f;
                     stfuHoldCounter[ch] = holdSamples;
                 }
                 else if (stfuHoldCounter[ch] > 0)
                 {
-                    // Hold phase: envelope just dipped below threshold but we wait
-                    // before releasing so the natural note tail rings out cleanly.
+                    // Hold phase: wait before releasing so note tail rings out.
                     targetGain = 1.0f;
                     --stfuHoldCounter[ch];
                 }
+                else if (stfuEnvelope[ch] >= closeThresh)
+                {
+                    // Hysteresis zone: between closeThresh and openThresh — hold open.
+                    targetGain = 1.0f;
+                }
                 else
                 {
-                    // Release phase: apply steep downward expansion.
-                    const float r = stfuEnvelope[ch] / juce::jmax(1e-9f, threshold);
-                    targetGain = std::pow(r, expansionPow);
+                    // Release phase: downward expansion with floor.
+                    const float r = stfuEnvelope[ch] / juce::jmax(1e-9f, closeThresh);
+                    targetGain = juce::jmax(minGain, std::pow(r, expansionPow));
                 }
 
                 const float coeff = (targetGain > stfuGain[ch]) ? attackCoeff : releaseCoeff;
@@ -2124,7 +2147,9 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
 
     tunerSamplesSinceLastAnalysis += numSamples;
 
-    if (levelDb < -60.0f)
+    // Use -80 dB threshold so low-output guitars (standalone, passive pickups)
+    // are not mistakenly rejected as silence.
+    if (levelDb < -80.0f)
     {
         ++tunerSilenceFrames;
 
@@ -2176,6 +2201,17 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
 
     for (int i = 0; i < windowSize; ++i)
         tunerWindowBuffer[static_cast<size_t>(i)] -= mean;
+
+    // Normalize amplitude so YIN works reliably on low-output guitars
+    // (passive pickups, direct into interface at low gain — common in standalone).
+    float peak = 0.0f;
+    for (float s : tunerWindowBuffer)
+        peak = juce::jmax(peak, std::abs(s));
+    if (peak < 1e-6f)
+        return;   // truly silent — bail out
+    const float normGain = 1.0f / peak;
+    for (int i = 0; i < windowSize; ++i)
+        tunerWindowBuffer[static_cast<size_t>(i)] *= normGain;
 
     const float frequency = estimateFrequencyYIN(tunerWindowBuffer.data(), windowSize);
     if (frequency <= 0.0f)
