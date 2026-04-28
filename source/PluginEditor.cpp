@@ -1063,7 +1063,7 @@ void HexstackAudioProcessorEditor::paint(juce::Graphics& g)
         const float drawW = imageW * coverScale;
         const float drawH = imageH * coverScale;
         const float drawX = topVisualArea.getX() + (targetW - drawW) * 0.5f;
-        const float drawY = topVisualArea.getY(); // anchor to top
+        const float drawY = topVisualArea.getY() + (targetH - drawH) * 0.5f;
 
         g.drawImage(backgroundImage,
                 juce::roundToInt(drawX),
