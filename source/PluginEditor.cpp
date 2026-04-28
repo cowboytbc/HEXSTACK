@@ -1461,7 +1461,7 @@ void HexstackAudioProcessorEditor::resized()
         const int limiterX = tapeSatX + stfuWidth + S(8);
         limiterKnob.setBounds(limiterX, loadIRButton.getBottom() + S(2), stfuWidth, stfuHeight);
         limiterLabel.setBounds(limiterX, loadIRButton.getBottom() + S(2) + stfuHeight, stfuWidth, S(18));
-        const int limiterGrX = limiterX + stfuWidth + S(6);
+        const int limiterGrX = limiterX - S(54) - S(6);
         const int limiterGrY = loadIRButton.getBottom() + S(2) + stfuHeight / 3;
         limiterGrLabel.setBounds(limiterGrX, limiterGrY, S(54), S(36));
     }
