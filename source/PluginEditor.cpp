@@ -1461,8 +1461,8 @@ void HexstackAudioProcessorEditor::resized()
         const int limiterX = tapeSatX + stfuWidth + S(8);
         limiterKnob.setBounds(limiterX, loadIRButton.getBottom() + S(2), stfuWidth, stfuHeight);
         limiterLabel.setBounds(limiterX, loadIRButton.getBottom() + S(2) + stfuHeight, stfuWidth, S(18));
-        const int limiterGrX = limiterX + stfuWidth + S(4);
-        const int limiterGrY = loadIRButton.getBottom() + S(2) + stfuHeight;
+        const int limiterGrX = limiterX + stfuWidth / 2 - S(24);
+        const int limiterGrY = loadIRButton.getBottom() + S(2) + stfuHeight / 2 - S(9);
         limiterGrLabel.setBounds(limiterGrX, limiterGrY, S(48), S(18));
     }
     topTabsArea.removeFromLeft(S(6));
