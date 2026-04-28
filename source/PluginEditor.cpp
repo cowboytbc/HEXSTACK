@@ -1470,7 +1470,7 @@ void HexstackAudioProcessorEditor::resized()
         const int limiterGrY = loadIRButton.getBottom() + S(2) + stfuHeight / 2 - S(9);
         limiterGrLabel.setBounds(limiterGrX, limiterGrY, S(48), S(18));
         // Makeup gain vertical slider to the right of the limiter knob
-        const int makeupX = limiterX + stfuWidth + S(6);
+        const int makeupX = limiterX + stfuWidth - S(26);
         const int makeupSliderH = stfuHeight + S(18); // same total height as knob+label
         makeupGainLabel.setBounds(makeupX, loadIRButton.getBottom() + S(2), S(52), S(14));
         makeupGainSlider.setBounds(makeupX, loadIRButton.getBottom() + S(2) + S(14), S(52), makeupSliderH - S(14));
