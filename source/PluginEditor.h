@@ -12,7 +12,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void mouseDown(const juce::MouseEvent& event) override;
+
     void mouseUp(const juce::MouseEvent& event) override;
 
 private:
