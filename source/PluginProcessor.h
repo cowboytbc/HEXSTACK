@@ -75,6 +75,7 @@ public:
     bool saveHexPresetToFile(const juce::File& file, const juce::String& presetName);
     bool loadHexPresetFromFile(const juce::File& file);
     juce::String getActiveHexFilePath() const { return activeHexFilePath; }
+    float getLimiterGainReductionDb() const { return limiterGainReductionDb.load(std::memory_order_relaxed); }
 
 private:
     bool applyLoadedStateTree(const juce::ValueTree& tree);
@@ -134,6 +135,7 @@ private:
     std::array<float, 2> lofiHeldSample { 0.0f, 0.0f };
     std::array<float, 2> stfuEnvelope { 0.0f, 0.0f };
     std::array<float, 2> stfuGain { 1.0f, 1.0f };
+    std::array<float, 2> limiterEnvelope { 0.0f, 0.0f };
     std::array<int, 2>   stfuHoldCounter { 0, 0 };  // per-channel hold-open sample counter
     std::array<float, 2> stfuHpfX { 0.0f, 0.0f };   // sidechain HPF: previous input sample
     std::array<float, 2> stfuHpfY { 0.0f, 0.0f };   // sidechain HPF: previous output sample
@@ -175,6 +177,7 @@ private:
     std::atomic<bool> tunerOutputMuted { false };
     std::atomic<float> tunerReferenceHz { 440.0f };
     std::atomic<int> tunerRangeMode { static_cast<int>(TunerRangeMode::wide) };
+    std::atomic<float> limiterGainReductionDb { 0.0f };
 
     int lastPrimaryMicParamIndex { -1 };
     int lastTunerReferenceIndex { -1 };

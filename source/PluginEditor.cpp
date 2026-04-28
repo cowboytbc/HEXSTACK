@@ -53,6 +53,7 @@ namespace ParamIDs
     static constexpr auto lofiIntensity = "lofiIntensity";
     static constexpr auto stfu = "stfu";
     static constexpr auto tapeSaturation = "tapeSaturation";
+    static constexpr auto limiter = "limiter";
 }
 
 namespace
@@ -453,6 +454,17 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     addAndMakeVisible(tapeSatKnob);
     addAndMakeVisible(tapeSatLabel);
 
+    setupKnob(limiterKnob, limiterLabel, "LIMITER");
+    limiterKnob.setTooltip("Output brickwall peak limiter. Turn up to tame transients and reduce peak levels. The ceiling auto-follows the master volume knob.");
+    addAndMakeVisible(limiterKnob);
+    addAndMakeVisible(limiterLabel);
+
+    limiterGrLabel.setFont(juce::Font(juce::FontOptions{}.withHeight(14.0f).withStyle("Bold")));
+    limiterGrLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 100, 60));
+    limiterGrLabel.setJustificationType(juce::Justification::centred);
+    limiterGrLabel.setText("0.0", juce::dontSendNotification);
+    addAndMakeVisible(limiterGrLabel);
+
     auto setupTabButton = [disengagedButtonColour, engagedButtonColour](juce::TextButton& button)
     {
         button.setColour(juce::TextButton::buttonColourId, disengagedButtonColour);
@@ -843,6 +855,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     lofiIntensityAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::lofiIntensity, lofiIntensityKnob);
     stfuAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::stfu, stfuKnob);
     tapeSatAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::tapeSaturation, tapeSatKnob);
+    limiterAttachment  = std::make_unique<SliderAttachment>(state, ParamIDs::limiter, limiterKnob);
 
     for (size_t i = 0; i < postEqBandAttachments.size(); ++i)
         postEqBandAttachments[i] = std::make_unique<SliderAttachment>(state, postEqParamIds[i], postEqBandSliders[i]);
@@ -1445,6 +1458,12 @@ void HexstackAudioProcessorEditor::resized()
         const int tapeSatX = stfuX + stfuWidth + S(8);
         tapeSatKnob.setBounds(tapeSatX, loadIRButton.getBottom() + S(2), stfuWidth, stfuHeight);
         tapeSatLabel.setBounds(tapeSatX, loadIRButton.getBottom() + S(2) + stfuHeight, stfuWidth, S(18));
+        const int limiterX = tapeSatX + stfuWidth + S(8);
+        limiterKnob.setBounds(limiterX, loadIRButton.getBottom() + S(2), stfuWidth, stfuHeight);
+        limiterLabel.setBounds(limiterX, loadIRButton.getBottom() + S(2) + stfuHeight, stfuWidth, S(18));
+        const int limiterGrX = limiterX + stfuWidth + S(6);
+        const int limiterGrY = loadIRButton.getBottom() + S(2) + stfuHeight / 3;
+        limiterGrLabel.setBounds(limiterGrX, limiterGrY, S(54), S(36));
     }
     topTabsArea.removeFromLeft(S(6));
     saveHexButton.setBounds(topTabsArea.removeFromLeft(S(98)));
@@ -1870,6 +1889,9 @@ void HexstackAudioProcessorEditor::updateTabVisibility()
     stfuLabel.setVisible(showAmp);
     tapeSatKnob.setVisible(showAmp);
     tapeSatLabel.setVisible(showAmp);
+    limiterKnob.setVisible(showAmp);
+    limiterLabel.setVisible(showAmp);
+    limiterGrLabel.setVisible(showAmp);
 
     tunerPanelLabel.setVisible(false);
     tunerRefLabel.setVisible(showTuner);
@@ -2164,6 +2186,16 @@ void HexstackAudioProcessorEditor::timerCallback()
 
     if (activeTab == ActiveTab::tuner)
         updateTunerDisplay();
+
+    // Update limiter GR readout regardless of tab so the value is fresh when user
+    // switches to the amp tab mid-playing.
+    {
+        const float grDb = audioProcessor.getLimiterGainReductionDb();
+        if (grDb < -0.05f)
+            limiterGrLabel.setText(juce::String(grDb, 1), juce::dontSendNotification);
+        else
+            limiterGrLabel.setText("0.0", juce::dontSendNotification);
+    }
 }
 
 void HexstackAudioProcessorEditor::syncPresetComboSelection()

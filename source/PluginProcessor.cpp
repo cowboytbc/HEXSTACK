@@ -357,6 +357,7 @@ namespace ParamIDs
     static constexpr auto lofiIntensity = "lofiIntensity";
     static constexpr auto stfu = "stfu";
     static constexpr auto tapeSaturation = "tapeSaturation";
+    static constexpr auto limiter = "limiter";
 }
 
 namespace
@@ -709,6 +710,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
                                     0.0f));
 
+    layout.push_back(makeFloatParam(ParamIDs::limiter,
+                                    "Limiter",
+                                    juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
+                                    0.0f));
+
     return { layout.begin(), layout.end() };
 }
 
@@ -799,6 +805,7 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
     setBoolParam(ParamIDs::lofi, false);
     setFloatParam(ParamIDs::stfu, preset.gate);
     setFloatParam(ParamIDs::tapeSaturation, 0.0f);
+    setFloatParam(ParamIDs::limiter, 0.0f);
     setFloatParam(ParamIDs::lofiIntensity, 0.0f);
     setFloatParam(ParamIDs::fxPitchShift, 0.0f);
     setFloatParam(ParamIDs::fxPitchMix, 1.0f);
@@ -888,6 +895,7 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     lofiHeldSample.fill(0.0f);
     stfuEnvelope.fill(0.0f);
     stfuGain.fill(1.0f);
+    limiterEnvelope.fill(0.0f);
     stfuHoldCounter.fill(0);
     stfuHpfX.fill(0.0f);
     stfuHpfY.fill(0.0f);
@@ -984,6 +992,7 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     lofiHeldSample.fill(0.0f);
     stfuEnvelope.fill(0.0f);
     stfuGain.fill(1.0f);
+    limiterEnvelope.fill(0.0f);
     stfuHoldCounter.fill(0);
     stfuHpfX.fill(0.0f);
     stfuHpfY.fill(0.0f);
@@ -1777,6 +1786,49 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
             --presetTransitionRampRemainingSamples;
         }
+    }
+
+    // Output peak limiter — absolute last stage.
+    // Ceiling is auto-set to the master volume level so it acts as a true-peak
+    // brickwall at whatever level the user has dialled in on the master knob.
+    // If master is above 0 dBFS we still cap at 0.99 to prevent DAW-side clipping.
+    const float limIntensity = juce::jlimit(0.0f, 1.0f, getParameterValue(ParamIDs::limiter, 0.0f));
+    if (limIntensity > 0.005f)
+    {
+        const float ceilingLin  = juce::jlimit(1e-6f, 0.99f, outputGain);
+        const float limAttCoeff = std::expf(-1.0f / (0.0001f * static_cast<float>(currentSampleRate)));  // ~0.1 ms attack
+        const float limRelCoeff = std::expf(-1.0f / (0.100f  * static_cast<float>(currentSampleRate)));  // ~100 ms release
+
+        float minGainApplied = 1.0f;
+        for (int channel = 0; channel < totalNumInputChannels; ++channel)
+        {
+            float* data = buffer.getWritePointer(channel);
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            {
+                const float absSample = std::abs(data[sample]);
+                if (absSample > limiterEnvelope[channel])
+                    limiterEnvelope[channel] = limAttCoeff * limiterEnvelope[channel] + (1.0f - limAttCoeff) * absSample;
+                else
+                    limiterEnvelope[channel] = limRelCoeff * limiterEnvelope[channel] + (1.0f - limRelCoeff) * absSample;
+
+                if (limiterEnvelope[channel] > ceilingLin)
+                {
+                    const float gainApplied = ceilingLin / juce::jmax(limiterEnvelope[channel], 1e-6f);
+                    data[sample] *= gainApplied;
+                    minGainApplied = juce::jmin(minGainApplied, gainApplied);
+                }
+            }
+        }
+
+        const float grDb = (minGainApplied < 0.999f)
+                           ? juce::Decibels::gainToDecibels(minGainApplied)
+                           : 0.0f;
+        limiterGainReductionDb.store(grDb, std::memory_order_relaxed);
+    }
+    else
+    {
+        limiterEnvelope.fill(0.0f);
+        limiterGainReductionDb.store(0.0f, std::memory_order_relaxed);
     }
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
