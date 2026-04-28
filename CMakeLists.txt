@@ -23,6 +23,24 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(juce)
 
+# Patch JUCE standalone so "Mute audio input" defaults to OFF.
+# A guitar amp plugin always requires live input — the user is responsible for
+# their monitoring chain. Without this patch the standalone silences the input
+# on every first launch (JUCE default = true to prevent speaker feedback).
+set(_juce_standalone_h
+    "${juce_SOURCE_DIR}/modules/juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h")
+if(EXISTS "${_juce_standalone_h}")
+    file(READ "${_juce_standalone_h}" _juce_standalone_content)
+    string(REPLACE
+        "settings->getBoolValue (\"shouldMuteInput\", true)"
+        "settings->getBoolValue (\"shouldMuteInput\", false)"
+        _juce_standalone_patched "${_juce_standalone_content}")
+    if(NOT _juce_standalone_content STREQUAL _juce_standalone_patched)
+        file(WRITE "${_juce_standalone_h}" "${_juce_standalone_patched}")
+        message(STATUS "Hexstack: patched JUCE standalone — muteInput defaults to OFF")
+    endif()
+endif()
+
 set(HEXSTACK_DELIVERABLES_DIR "${CMAKE_SOURCE_DIR}/DELIVERABLES")
 set(HEXSTACK_PLUGIN_FORMATS Standalone VST3)
 set(HEXSTACK_PLUGIN_COPY_ARGS)
