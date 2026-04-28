@@ -1194,6 +1194,39 @@ void HexstackAudioProcessorEditor::paint(juce::Graphics& g)
         drawLed(meterBounds.getRight(), ledY, juce::Colour::fromRGB(220, 38, 48), redOn);
     }
 
+    // Input level bar — always visible on tuner screen so the user can see
+    // whether signal is actually arriving at the plugin.
+    if (activeTab == ActiveTab::tuner && ! tunerInputLevelBarBounds.isEmpty())
+    {
+        const auto bar = tunerInputLevelBarBounds.toFloat();
+        // Background track
+        g.setColour(juce::Colour::fromRGB(10, 10, 12));
+        g.fillRoundedRectangle(bar, 4.0f);
+        g.setColour(juce::Colour::fromRGB(236, 240, 246).withAlpha(0.12f));
+        g.drawRoundedRectangle(bar.reduced(0.6f), 3.6f, 1.0f);
+
+        // Fill proportional to smoothed level (maps -60 → -6 dBFS to 0 → 1)
+        const float fillFraction = juce::jlimit(0.0f, 1.0f,
+            juce::jmap(tunerInputLevelSmoothedUi, -60.0f, -6.0f, 0.0f, 1.0f));
+        if (fillFraction > 0.001f)
+        {
+            const auto fill = bar.reduced(2.0f, 2.0f).withWidth(bar.reduced(2.0f, 2.0f).getWidth() * fillFraction);
+            const juce::Colour barColour = fillFraction > 0.8f
+                ? juce::Colour::fromRGB(220, 38, 48)   // red: very hot
+                : fillFraction > 0.4f
+                    ? juce::Colour::fromRGB(58, 210, 100)  // green: healthy signal
+                    : juce::Colour::fromRGB(80, 100, 200); // blue: weak signal
+            g.setColour(barColour.withAlpha(0.82f));
+            g.fillRoundedRectangle(fill, 3.0f);
+        }
+
+        // Label
+        g.setFont(juce::FontOptions(9.5f, juce::Font::plain));
+        g.setColour(juce::Colours::whitesmoke.withAlpha(0.38f));
+        g.drawFittedText("INPUT", tunerInputLevelBarBounds.withLeft(tunerInputLevelBarBounds.getRight() + 4),
+                         juce::Justification::centredLeft, 1);
+    }
+
     if (activeTab == ActiveTab::fx && ! fxPedalAreaBounds.isEmpty())
     {
         const std::array<const juce::Image*, 5> pedalOrder {
@@ -1606,6 +1639,8 @@ void HexstackAudioProcessorEditor::resized()
     tunerNoteLabel.setBounds(tunerBounds.removeFromTop(S(84)));
     tunerFreqLabel.setBounds(tunerBounds.removeFromTop(S(32)));
     tunerCentsLabel.setBounds(tunerBounds.removeFromTop(S(26)));
+    tunerBounds.removeFromTop(S(8));
+    tunerInputLevelBarBounds = tunerBounds.removeFromTop(S(10)).reduced(S(24), 0);
 
     auto fxBounds = fullTabArea.reduced(S(4));
     fxPanelLabel.setBounds(fxBounds.removeFromTop(S(24)));
@@ -2034,7 +2069,13 @@ void HexstackAudioProcessorEditor::updateTunerDisplay()
         tunerGlowStrengthUi += (0.0f - tunerGlowStrengthUi) * 0.35f;
         if (tunerGlowStrengthUi < 0.01f)
             tunerGlowStrengthUi = 0.0f;
+
+        // Decay the input level bar toward silence when no note is detected.
+        tunerInputLevelSmoothedUi += (tuner.levelDb - tunerInputLevelSmoothedUi)
+                                     * ((tuner.levelDb > tunerInputLevelSmoothedUi) ? 0.80f : 0.12f);
+
         repaint(tunerMeterDrawBounds.expanded(18));
+        repaint(tunerInputLevelBarBounds.expanded(4));
         return;
     }
 
@@ -2091,7 +2132,14 @@ void HexstackAudioProcessorEditor::updateTunerDisplay()
     tunerInTuneUi = inTune;
     const float targetGlowStrength = juce::jlimit(0.0f, 1.0f, juce::jmap(tuner.levelDb, -60.0f, -12.0f, 0.0f, 1.0f));
     tunerGlowStrengthUi += (targetGlowStrength - tunerGlowStrengthUi) * 0.28f;
+
+    // Animate the input level bar (fast attack, moderate release)
+    const float levelTarget = tuner.levelDb;
+    const float levelCoeff = (levelTarget > tunerInputLevelSmoothedUi) ? 0.80f : 0.12f;
+    tunerInputLevelSmoothedUi += (levelTarget - tunerInputLevelSmoothedUi) * levelCoeff;
+
     repaint(tunerMeterDrawBounds.expanded(18));
+    repaint(tunerInputLevelBarBounds.expanded(4));
 }
 
 void HexstackAudioProcessorEditor::timerCallback()

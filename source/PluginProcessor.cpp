@@ -2154,9 +2154,10 @@ void HexstackAudioProcessor::analyzeTunerInput(const juce::AudioBuffer<float>& b
 
     tunerSamplesSinceLastAnalysis += numSamples;
 
-    // Use -80 dB threshold so low-output guitars (standalone, passive pickups)
-    // are not mistakenly rejected as silence.
-    if (levelDb < -80.0f)
+    // Only bail out on genuine silence (no signal at all for several frames).
+    // We rely on the peak-normalisation step inside the window analysis to
+    // guard against very low-level noise producing a bogus pitch reading.
+    if (levelDb < -96.0f)
     {
         ++tunerSilenceFrames;
 
