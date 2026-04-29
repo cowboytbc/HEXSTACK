@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <unordered_map>
 #include "PluginProcessor.h"
 
 class HexstackAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -140,9 +141,13 @@ private:
     juce::Slider fxPitchShiftSlider;
     juce::Slider fxPitchMixSlider;
     juce::Slider fxPitchWidthSlider;
+    juce::Slider fxPitchExprHeelSlider;
+    juce::Slider fxPitchExprToeSlider;
     juce::Slider fxWahFreqSlider;
     juce::Slider fxWahQSlider;
     juce::Slider fxWahMixSlider;
+    juce::Slider fxWahExprHeelSlider;
+    juce::Slider fxWahExprToeSlider;
     juce::Slider fxDriveAmountSlider;
     juce::Slider fxDriveToneSlider;
     juce::Slider fxDriveLevelSlider;
@@ -162,9 +167,13 @@ private:
     juce::Label fxPitchShiftLabel;
     juce::Label fxPitchMixLabel;
     juce::Label fxPitchWidthLabel;
+    juce::Label fxPitchExprHeelLabel;
+    juce::Label fxPitchExprToeLabel;
     juce::Label fxWahFreqLabel;
     juce::Label fxWahQLabel;
     juce::Label fxWahMixLabel;
+    juce::Label fxWahExprHeelLabel;
+    juce::Label fxWahExprToeLabel;
     juce::Label fxDriveAmountLabel;
     juce::Label fxDriveToneLabel;
     juce::Label fxDriveLevelLabel;
@@ -197,9 +206,13 @@ private:
     std::unique_ptr<SliderAttachment> fxPitchShiftAttachment;
     std::unique_ptr<SliderAttachment> fxPitchMixAttachment;
     std::unique_ptr<SliderAttachment> fxPitchWidthAttachment;
+    std::unique_ptr<SliderAttachment> fxPitchExprHeelAttachment;
+    std::unique_ptr<SliderAttachment> fxPitchExprToeAttachment;
     std::unique_ptr<SliderAttachment> fxWahFreqAttachment;
     std::unique_ptr<SliderAttachment> fxWahQAttachment;
     std::unique_ptr<SliderAttachment> fxWahMixAttachment;
+    std::unique_ptr<SliderAttachment> fxWahExprHeelAttachment;
+    std::unique_ptr<SliderAttachment> fxWahExprToeAttachment;
     std::unique_ptr<SliderAttachment> fxDriveAmountAttachment;
     std::unique_ptr<SliderAttachment> fxDriveToneAttachment;
     std::unique_ptr<SliderAttachment> fxDriveLevelAttachment;
@@ -243,6 +256,14 @@ private:
     bool getFxPowerParameterValue(size_t index) const;
     void setFxPowerParameterValue(size_t index, bool enabled);
     void timerCallback() override;
+
+    // ── MIDI Learn UI ─────────────────────────────────────────────────────────
+    std::unordered_map<juce::Component*, juce::String> sliderParamMap;
+    void registerMidiLearnSlider(juce::Slider& s, const char* paramId);
+    void showMidiLearnContextMenu(juce::Component* target, const juce::String& paramId);
+    void updateMidiLearnHighlights();
+    void mouseDown(const juce::MouseEvent& e) override;
+    // ─────────────────────────────────────────────────────────────────────────
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HexstackAudioProcessorEditor)
 };

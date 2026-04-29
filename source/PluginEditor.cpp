@@ -27,12 +27,16 @@ namespace ParamIDs
     static constexpr auto fxPower3 = "fxPower3";
     static constexpr auto fxPower4 = "fxPower4";
     static constexpr auto fxPower5 = "fxPower5";
-    static constexpr auto fxPitchShift = "fxPitchShift";
-    static constexpr auto fxPitchMix = "fxPitchMix";
-    static constexpr auto fxPitchWidth = "fxPitchWidth";
-    static constexpr auto fxWahFreq = "fxWahFreq";
-    static constexpr auto fxWahQ = "fxWahQ";
-    static constexpr auto fxWahMix = "fxWahMix";
+    static constexpr auto fxPitchShift      = "fxPitchShift";
+    static constexpr auto fxPitchMix        = "fxPitchMix";
+    static constexpr auto fxPitchWidth      = "fxPitchWidth";
+    static constexpr auto fxPitchExprHeel   = "fxPitchExprHeel";
+    static constexpr auto fxPitchExprToe    = "fxPitchExprToe";
+    static constexpr auto fxWahFreq         = "fxWahFreq";
+    static constexpr auto fxWahQ            = "fxWahQ";
+    static constexpr auto fxWahMix          = "fxWahMix";
+    static constexpr auto fxWahExprHeel     = "fxWahExprHeel";
+    static constexpr auto fxWahExprToe      = "fxWahExprToe";
     static constexpr auto fxDriveAmount = "fxDriveAmount";
     static constexpr auto fxDriveTone = "fxDriveTone";
     static constexpr auto fxDriveLevel = "fxDriveLevel";
@@ -694,9 +698,13 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     setupKnob(fxPitchShiftSlider, fxPitchShiftLabel, "Shift");
     setupKnob(fxPitchMixSlider, fxPitchMixLabel, "Mix");
     setupKnob(fxPitchWidthSlider, fxPitchWidthLabel, "Width");
+    setupKnob(fxPitchExprHeelSlider, fxPitchExprHeelLabel, "Heel");
+    setupKnob(fxPitchExprToeSlider, fxPitchExprToeLabel, "Toe");
     setupKnob(fxWahFreqSlider, fxWahFreqLabel, "Sweep");
     setupKnob(fxWahQSlider, fxWahQLabel, "Q");
     setupKnob(fxWahMixSlider, fxWahMixLabel, "Mix");
+    setupKnob(fxWahExprHeelSlider, fxWahExprHeelLabel, "Heel");
+    setupKnob(fxWahExprToeSlider, fxWahExprToeLabel, "Toe");
     setupKnob(fxDriveAmountSlider, fxDriveAmountLabel, "Drive");
     setupKnob(fxDriveToneSlider, fxDriveToneLabel, "Tone");
     setupKnob(fxDriveLevelSlider, fxDriveLevelLabel, "Level");
@@ -720,9 +728,17 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     fxPitchShiftSlider.setRange(-24.0, 24.0, 1.0);
     fxPitchMixSlider.setRange(0.0, 1.0, 0.001);
     fxPitchWidthSlider.setRange(0.0, 1.0, 0.001);
+    fxPitchExprHeelSlider.setRange(-24.0, 24.0, 1.0);
+    fxPitchExprToeSlider.setRange(-24.0, 24.0, 1.0);
+    fxPitchExprHeelSlider.setTooltip("Expression pedal heel-down pitch (semitones).");
+    fxPitchExprToeSlider.setTooltip("Expression pedal toe-down pitch (semitones).");
     fxWahFreqSlider.setRange(0.0, 1.0, 0.001);
     fxWahQSlider.setRange(0.4, 8.0, 0.01);
     fxWahMixSlider.setRange(0.0, 1.0, 0.001);
+    fxWahExprHeelSlider.setRange(0.0, 1.0, 0.001);
+    fxWahExprToeSlider.setRange(0.0, 1.0, 0.001);
+    fxWahExprHeelSlider.setTooltip("Expression pedal heel-down sweep position.");
+    fxWahExprToeSlider.setTooltip("Expression pedal toe-down sweep position.");
     fxDriveAmountSlider.setRange(0.0, 1.0, 0.001);
     fxDriveToneSlider.setRange(0.0, 1.0, 0.001);
     fxDriveLevelSlider.setRange(-12.0, 12.0, 0.01);
@@ -841,9 +857,13 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     fxPitchShiftAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxPitchShift, fxPitchShiftSlider);
     fxPitchMixAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxPitchMix, fxPitchMixSlider);
     fxPitchWidthAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxPitchWidth, fxPitchWidthSlider);
+    fxPitchExprHeelAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxPitchExprHeel, fxPitchExprHeelSlider);
+    fxPitchExprToeAttachment  = std::make_unique<SliderAttachment>(state, ParamIDs::fxPitchExprToe,  fxPitchExprToeSlider);
     fxWahFreqAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxWahFreq, fxWahFreqSlider);
     fxWahQAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxWahQ, fxWahQSlider);
     fxWahMixAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxWahMix, fxWahMixSlider);
+    fxWahExprHeelAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxWahExprHeel, fxWahExprHeelSlider);
+    fxWahExprToeAttachment  = std::make_unique<SliderAttachment>(state, ParamIDs::fxWahExprToe,  fxWahExprToeSlider);
     fxDriveAmountAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxDriveAmount, fxDriveAmountSlider);
     fxDriveToneAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxDriveTone, fxDriveToneSlider);
     fxDriveLevelAttachment = std::make_unique<SliderAttachment>(state, ParamIDs::fxDriveLevel, fxDriveLevelSlider);
@@ -932,6 +952,51 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
     updateTabVisibility();
     refreshIRStatus();
     resized();
+
+    // ── Register all sliders for MIDI Learn ───────────────────────────────────
+    registerMidiLearnSlider(inputSlider,            "input");
+    registerMidiLearnSlider(driveSlider,            "gain");
+    registerMidiLearnSlider(toneSlider,             "bass");
+    registerMidiLearnSlider(micDistanceSlider,      "mids");
+    registerMidiLearnSlider(micBlendSlider,         "treble");
+    registerMidiLearnSlider(outputSlider,           "presence");
+    registerMidiLearnSlider(depthSlider,            "depth");
+    registerMidiLearnSlider(mixSlider,              "master");
+    registerMidiLearnSlider(cabLowCutSlider,        "cabLowCut");
+    registerMidiLearnSlider(cabHighCutSlider,       "cabHighCut");
+    registerMidiLearnSlider(lofiIntensityKnob,      "lofiIntensity");
+    registerMidiLearnSlider(stfuKnob,              "stfu");
+    registerMidiLearnSlider(tapeSatKnob,           "tapeSaturation");
+    registerMidiLearnSlider(limiterKnob,           "limiter");
+    registerMidiLearnSlider(makeupGainSlider,       "makeupGain");
+    for (size_t i = 0; i < postEqBandSliders.size(); ++i)
+        registerMidiLearnSlider(postEqBandSliders[i], postEqParamIds[i]);
+    registerMidiLearnSlider(fxPitchShiftSlider,    "fxPitchShift");
+    registerMidiLearnSlider(fxPitchMixSlider,      "fxPitchMix");
+    registerMidiLearnSlider(fxPitchWidthSlider,    "fxPitchWidth");
+    registerMidiLearnSlider(fxPitchExprHeelSlider, "fxPitchExprHeel");
+    registerMidiLearnSlider(fxPitchExprToeSlider,  "fxPitchExprToe");
+    registerMidiLearnSlider(fxWahFreqSlider,       "fxWahFreq");
+    registerMidiLearnSlider(fxWahQSlider,          "fxWahQ");
+    registerMidiLearnSlider(fxWahMixSlider,        "fxWahMix");
+    registerMidiLearnSlider(fxWahExprHeelSlider,   "fxWahExprHeel");
+    registerMidiLearnSlider(fxWahExprToeSlider,    "fxWahExprToe");
+    registerMidiLearnSlider(fxDriveAmountSlider,   "fxDriveAmount");
+    registerMidiLearnSlider(fxDriveToneSlider,     "fxDriveTone");
+    registerMidiLearnSlider(fxDriveLevelSlider,    "fxDriveLevel");
+    registerMidiLearnSlider(fxDriveMixSlider,      "fxDriveMix");
+    registerMidiLearnSlider(fxDriveTightSlider,    "fxDriveTight");
+    registerMidiLearnSlider(fxDelayTimeSlider,     "fxDelayTimeMs");
+    registerMidiLearnSlider(fxDelayFeedbackSlider, "fxDelayFeedback");
+    registerMidiLearnSlider(fxDelayToneSlider,     "fxDelayTone");
+    registerMidiLearnSlider(fxDelayMixSlider,      "fxDelayMix");
+    registerMidiLearnSlider(fxDelayWidthSlider,    "fxDelayWidth");
+    registerMidiLearnSlider(fxReverbSizeSlider,    "fxReverbSize");
+    registerMidiLearnSlider(fxReverbDampSlider,    "fxReverbDamp");
+    registerMidiLearnSlider(fxReverbMixSlider,     "fxReverbMix");
+    registerMidiLearnSlider(fxReverbPredelaySlider,"fxReverbPreDelayMs");
+    // ─────────────────────────────────────────────────────────────────────────
+
     startTimerHz(30);
 }
 
@@ -1734,9 +1799,13 @@ void HexstackAudioProcessorEditor::resized()
     clearKnob(fxPitchShiftSlider, fxPitchShiftLabel);
     clearKnob(fxPitchMixSlider, fxPitchMixLabel);
     clearKnob(fxPitchWidthSlider, fxPitchWidthLabel);
+    clearKnob(fxPitchExprHeelSlider, fxPitchExprHeelLabel);
+    clearKnob(fxPitchExprToeSlider, fxPitchExprToeLabel);
     clearKnob(fxWahFreqSlider, fxWahFreqLabel);
     clearKnob(fxWahQSlider, fxWahQLabel);
     clearKnob(fxWahMixSlider, fxWahMixLabel);
+    clearKnob(fxWahExprHeelSlider, fxWahExprHeelLabel);
+    clearKnob(fxWahExprToeSlider, fxWahExprToeLabel);
     clearKnob(fxDriveAmountSlider, fxDriveAmountLabel);
     clearKnob(fxDriveToneSlider, fxDriveToneLabel);
     clearKnob(fxDriveLevelSlider, fxDriveLevelLabel);
@@ -1776,14 +1845,14 @@ void HexstackAudioProcessorEditor::resized()
         case 0:
             layoutKnobs(fxControlsArea,
                         { { &fxPitchShiftSlider, &fxPitchShiftLabel },
-                                                    { &fxPitchMixSlider, &fxPitchMixLabel },
-                                                    { &fxPitchWidthSlider, &fxPitchWidthLabel } });
+                          { &fxPitchMixSlider,   &fxPitchMixLabel },
+                          { &fxPitchWidthSlider, &fxPitchWidthLabel } });
             break;
         case 1:
             layoutKnobs(fxControlsArea,
                         { { &fxWahFreqSlider, &fxWahFreqLabel },
-                          { &fxWahQSlider, &fxWahQLabel },
-                          { &fxWahMixSlider, &fxWahMixLabel } });
+                          { &fxWahQSlider,    &fxWahQLabel },
+                          { &fxWahMixSlider,  &fxWahMixLabel } });
             break;
         case 2:
             layoutKnobs(fxControlsArea,
@@ -2134,8 +2203,154 @@ void HexstackAudioProcessorEditor::updateTunerDisplay()
     repaint(tunerInputLevelBarBounds.expanded(4));
 }
 
+// ── MIDI Learn UI ─────────────────────────────────────────────────────────────
+
+void HexstackAudioProcessorEditor::registerMidiLearnSlider(juce::Slider& s, const char* paramId)
+{
+    sliderParamMap[&s] = paramId;
+    s.addMouseListener(this, false);
+}
+
+void HexstackAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
+{
+    if (! e.mods.isRightButtonDown())
+        return;
+
+    const auto it = sliderParamMap.find(e.eventComponent);
+    if (it == sliderParamMap.end())
+        return;
+
+    showMidiLearnContextMenu(it->first, it->second);
+}
+
+void HexstackAudioProcessorEditor::showMidiLearnContextMenu(juce::Component* target,
+                                                             const juce::String& paramId)
+{
+    const int existingCC = audioProcessor.getMidiCCForParam(paramId);
+
+    juce::String learnLabel = "MIDI Learn";
+    if (existingCC >= 0)
+        learnLabel += "  (CC " + juce::String(existingCC) + ")";
+
+    const bool isPitch = (paramId == "fxPitchShift");
+    const bool isWah   = (paramId == "fxWahFreq");
+
+    juce::String heelParamId, toeParamId;
+    juce::String currentValStr;
+    if (isPitch)
+    {
+        heelParamId   = ParamIDs::fxPitchExprHeel;
+        toeParamId    = ParamIDs::fxPitchExprToe;
+        const double v = static_cast<juce::Slider*>(target)->getValue();
+        currentValStr = juce::String(juce::roundToInt(v)) + " st";
+    }
+    else if (isWah)
+    {
+        heelParamId   = ParamIDs::fxWahExprHeel;
+        toeParamId    = ParamIDs::fxWahExprToe;
+        const double v = static_cast<juce::Slider*>(target)->getValue();
+        currentValStr = juce::String(v, 2);
+    }
+
+    // Retrieve heel/toe current values for display
+    juce::String heelStr, toeStr;
+    if (heelParamId.isNotEmpty())
+    {
+        auto& apvts = audioProcessor.getParametersState();
+        if (const auto* hParam = apvts.getParameter(heelParamId))
+        {
+            const float hVal = hParam->convertFrom0to1(hParam->getValue());
+            heelStr = isPitch ? (juce::String(juce::roundToInt(hVal)) + " st")
+                               : juce::String(hVal, 2);
+        }
+        if (const auto* tParam = apvts.getParameter(toeParamId))
+        {
+            const float tVal = tParam->convertFrom0to1(tParam->getValue());
+            toeStr = isPitch ? (juce::String(juce::roundToInt(tVal)) + " st")
+                              : juce::String(tVal, 2);
+        }
+    }
+
+    juce::PopupMenu menu;
+    menu.addItem(1, learnLabel);
+    menu.addItem(2, "Clear MIDI Assignment", existingCC >= 0, false);
+
+    if (isPitch || isWah)
+    {
+        menu.addSeparator();
+        menu.addItem(4, "Set Heel to current  (" + currentValStr + ")  [heel: " + heelStr + "]");
+        menu.addItem(5, "Set Toe to current  (" + currentValStr + ")  [toe: " + toeStr + "]");
+    }
+
+    menu.addSeparator();
+    menu.addItem(3, "Clear All MIDI Assignments");
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(target),
+        [this, paramId, heelParamId, toeParamId, target](int result)
+        {
+            if (result == 1)
+                audioProcessor.armMidiLearn(paramId);
+            else if (result == 2)
+                audioProcessor.clearMidiCC(paramId);
+            else if (result == 3)
+                audioProcessor.clearAllMidiCC();
+            else if ((result == 4 || result == 5) && heelParamId.isNotEmpty())
+            {
+                const juce::String& destId = (result == 4) ? heelParamId : toeParamId;
+                const float sliderVal = (float) static_cast<juce::Slider*>(target)->getValue();
+                if (auto* p = audioProcessor.getParametersState().getParameter(destId))
+                    p->setValueNotifyingHost(p->convertTo0to1(sliderVal));
+            }
+        });
+}
+
+void HexstackAudioProcessorEditor::updateMidiLearnHighlights()
+{
+    const juce::String armedParam = audioProcessor.getMidiLearnArmedParamId();
+    const bool flashOn = (juce::Time::getMillisecondCounter() / 300) % 2 == 0;
+
+    static constexpr juce::uint32 kDefaultOutline = 0xFF300E12;   // fromRGB(48,14,18)
+    static constexpr juce::uint32 kDefaultThumb   = 0xFFF85868;   // fromRGB(248,88,104)
+    static constexpr juce::uint32 kLearnedColour  = 0xFFFF8C00;   // orange
+    static constexpr juce::uint32 kArmedFlashA    = 0xFFFFA500;   // orange
+    static constexpr juce::uint32 kArmedFlashB    = 0xFFFFC832;   // yellow
+
+    for (auto& [comp, paramId] : sliderParamMap)
+    {
+        auto* s = static_cast<juce::Slider*>(comp);
+        const bool isArmed = armedParam.isNotEmpty() && paramId == armedParam;
+        const bool hasMidi = audioProcessor.getMidiCCForParam(paramId) >= 0;
+
+        juce::Colour outlineCol, thumbCol;
+        if (isArmed)
+        {
+            const auto flashColour = juce::Colour(flashOn ? kArmedFlashA : kArmedFlashB);
+            outlineCol = flashColour;
+            thumbCol   = flashColour;
+        }
+        else if (hasMidi)
+        {
+            outlineCol = juce::Colour(kLearnedColour);
+            thumbCol   = juce::Colour(kLearnedColour);
+        }
+        else
+        {
+            outlineCol = juce::Colour(kDefaultOutline);
+            thumbCol   = juce::Colour(kDefaultThumb);
+        }
+
+        s->setColour(juce::Slider::rotarySliderOutlineColourId, outlineCol);
+        s->setColour(juce::Slider::thumbColourId, thumbCol);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 void HexstackAudioProcessorEditor::timerCallback()
 {
+    audioProcessor.applyPendingMidiCCsOnMessageThread();
+    updateMidiLearnHighlights();
+
     syncFxPowerFromParameters();
 
     // Reconcile combo selection with processor state so that DAW undo/redo and

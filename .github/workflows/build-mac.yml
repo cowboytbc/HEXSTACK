@@ -25,7 +25,9 @@ jobs:
         run: |
           cmake -B build -G Xcode \
             -DCMAKE_BUILD_TYPE=Release \
-            -DHEXSTACK_COPY_PLUGIN_AFTER_BUILD=ON
+            -DHEXSTACK_COPY_PLUGIN_AFTER_BUILD=ON \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       # ── Build (VST3 + Standalone + AU) ──────────────────────────────────────
       - name: Build Release

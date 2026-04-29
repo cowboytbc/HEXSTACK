@@ -77,6 +77,17 @@ public:
     juce::String getActiveHexFilePath() const { return activeHexFilePath; }
     float getLimiterGainReductionDb() const { return limiterGainReductionDb.load(std::memory_order_relaxed); }
 
+    // ── MIDI Learn ────────────────────────────────────────────────────────────
+    void armMidiLearn(const juce::String& paramId);
+    void disarmMidiLearn();
+    void clearMidiCC(const juce::String& paramId);
+    void clearAllMidiCC();
+    bool isMidiLearnArmed() const noexcept { return midiLearnArmedParamIndex.load(std::memory_order_acquire) >= 0; }
+    juce::String getMidiLearnArmedParamId() const;
+    int getMidiCCForParam(const juce::String& paramId) const;
+    void applyPendingMidiCCsOnMessageThread();
+    // ─────────────────────────────────────────────────────────────────────────
+
 private:
     bool applyLoadedStateTree(const juce::ValueTree& tree);
     void prepareCabinetConvolution();
@@ -147,6 +158,21 @@ private:
     std::atomic<bool> presetChangeResetPending { false };
     int presetTransitionRampRemainingSamples { 0 };
     juce::String activeHexFilePath; // path of last loaded .hex file; used by editor to restore combo selection
+
+    // ── MIDI Learn (lock-free audio-thread-safe design) ───────────────────────
+    // Atomic array: index = MIDI CC number (0..127), value = index into
+    // kMidiLearnableParamIDs[], or -1 for no mapping.
+    // paramToCCIndex[paramIdx] = CC number assigned to that param (-1 = none).
+    // Multiple params CAN share the same CC (one physical knob → many params).
+    std::array<std::atomic<int>, 64> paramToCCIndex;
+    // -1 = not armed; 0..N = index of param waiting for its first CC.
+    std::atomic<int> midiLearnArmedParamIndex { -1 };
+    // Lock-free FIFO: audio thread pushes {cc, normValue}; message thread drains.
+    static constexpr int kMidiCCFifoSize = 64;
+    struct PendingCCEvent { int cc; float normValue; };
+    juce::AbstractFifo midiCCFifo { kMidiCCFifoSize };
+    PendingCCEvent midiCCFifoData[kMidiCCFifoSize];
+    // ─────────────────────────────────────────────────────────────────────────
 
     double currentSampleRate { 44100.0 };
     int currentMaxBlockSize { 512 };

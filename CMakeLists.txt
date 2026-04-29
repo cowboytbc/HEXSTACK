@@ -70,6 +70,8 @@ endif()
 
 if(APPLE)
     list(APPEND HEXSTACK_PLUGIN_FORMATS AU)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target" FORCE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures (universal binary)" FORCE)
 endif()
 
 if(HEXSTACK_ENABLE_VST2)
@@ -104,7 +106,7 @@ juce_add_plugin(Hexstack
     COMPANY_NAME "INFERNO TONES"
     BUNDLE_ID com.infernotones.hexstack
     IS_SYNTH FALSE
-    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE

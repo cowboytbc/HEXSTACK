@@ -331,12 +331,16 @@ namespace ParamIDs
     static constexpr auto fxPower3 = "fxPower3";
     static constexpr auto fxPower4 = "fxPower4";
     static constexpr auto fxPower5 = "fxPower5";
-    static constexpr auto fxPitchShift = "fxPitchShift";
-    static constexpr auto fxPitchMix = "fxPitchMix";
-    static constexpr auto fxPitchWidth = "fxPitchWidth";
-    static constexpr auto fxWahFreq = "fxWahFreq";
-    static constexpr auto fxWahQ = "fxWahQ";
-    static constexpr auto fxWahMix = "fxWahMix";
+    static constexpr auto fxPitchShift      = "fxPitchShift";
+    static constexpr auto fxPitchMix        = "fxPitchMix";
+    static constexpr auto fxPitchWidth      = "fxPitchWidth";
+    static constexpr auto fxPitchExprHeel   = "fxPitchExprHeel";
+    static constexpr auto fxPitchExprToe    = "fxPitchExprToe";
+    static constexpr auto fxWahFreq         = "fxWahFreq";
+    static constexpr auto fxWahQ            = "fxWahQ";
+    static constexpr auto fxWahMix          = "fxWahMix";
+    static constexpr auto fxWahExprHeel     = "fxWahExprHeel";
+    static constexpr auto fxWahExprToe      = "fxWahExprToe";
     static constexpr auto fxDriveAmount = "fxDriveAmount";
     static constexpr auto fxDriveTone = "fxDriveTone";
     static constexpr auto fxDriveLevel = "fxDriveLevel";
@@ -408,6 +412,32 @@ namespace HexPresetKeys
     static constexpr auto schemaVersion = "schemaVersion";
     static constexpr auto presetName = "presetName";
     static constexpr auto pluginStateTag = "PluginState";
+}
+
+namespace MidiLearn
+{
+    // All parameters exposed to MIDI Learn.  Order is stable — index is stored in state.
+    static constexpr const char* paramIDs[] = {
+        "input", "gain", "bass", "mids", "treble", "presence", "depth", "master",
+        "cabLowCut", "cabHighCut",
+        "lofiIntensity", "stfu", "tapeSaturation", "limiter", "makeupGain",
+        "postEq31", "postEq62", "postEq125", "postEq250", "postEq500",
+        "postEq1k", "postEq2k", "postEq4k", "postEq8k", "postEq16k",
+        "fxPitchShift", "fxPitchMix", "fxPitchWidth", "fxPitchExprHeel", "fxPitchExprToe",
+        "fxWahFreq", "fxWahQ", "fxWahMix", "fxWahExprHeel", "fxWahExprToe",
+        "fxDriveAmount", "fxDriveTone", "fxDriveLevel", "fxDriveMix", "fxDriveTight",
+        "fxDelayTimeMs", "fxDelayFeedback", "fxDelayTone", "fxDelayMix", "fxDelayWidth",
+        "fxReverbSize", "fxReverbDamp", "fxReverbMix", "fxReverbPreDelayMs"
+    };
+    static constexpr int count = static_cast<int>(std::size(paramIDs));
+
+    static int findIndex(const juce::String& paramId)
+    {
+        for (int i = 0; i < count; ++i)
+            if (paramId == paramIDs[i])
+                return i;
+        return -1;
+    }
 }
 
 namespace PresetData
@@ -485,6 +515,9 @@ HexstackAudioProcessor::HexstackAudioProcessor()
                                       .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    for (auto& a : paramToCCIndex)
+        a.store(-1, std::memory_order_relaxed);
+
     setCurrentProgram(0);
 }
 
@@ -609,7 +642,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
     layout.push_back(makeFloatParam(ParamIDs::fxPitchWidth,
                                     "FX PITCH Width",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
-                                        0.0f));
+                                    0.0f));
+    layout.push_back(makeFloatParam(ParamIDs::fxPitchExprHeel,
+                                    "FX PITCH Expr Heel",
+                                    juce::NormalisableRange<float>(-24.0f, 24.0f, 1.0f),
+                                    -12.0f,
+                                    juce::AudioParameterFloatAttributes().withLabel("st")));
+    layout.push_back(makeFloatParam(ParamIDs::fxPitchExprToe,
+                                    "FX PITCH Expr Toe",
+                                    juce::NormalisableRange<float>(-24.0f, 24.0f, 1.0f),
+                                    12.0f,
+                                    juce::AudioParameterFloatAttributes().withLabel("st")));
     layout.push_back(makeFloatParam(ParamIDs::fxWahFreq,
                                     "FX WAH Sweep",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
@@ -620,6 +663,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout HexstackAudioProcessor::crea
                                     2.8f));
     layout.push_back(makeFloatParam(ParamIDs::fxWahMix,
                                     "FX WAH Mix",
+                                    juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
+                                    1.0f));
+    layout.push_back(makeFloatParam(ParamIDs::fxWahExprHeel,
+                                    "FX WAH Expr Heel",
+                                    juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
+                                    0.0f));
+    layout.push_back(makeFloatParam(ParamIDs::fxWahExprToe,
+                                    "FX WAH Expr Toe",
                                     juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
                                     1.0f));
 
@@ -1059,9 +1110,44 @@ bool HexstackAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) 
 
 void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
-    juce::ignoreUnused(midiMessages);
-
     juce::ScopedNoDenormals noDenormals;
+
+    // ── MIDI CC learn / control ───────────────────────────────────────────────
+    for (const auto meta : midiMessages)
+    {
+        const auto msg = meta.getMessage();
+        if (! msg.isController())
+            continue;
+
+        const int cc  = msg.getControllerNumber();
+        const float v = static_cast<float>(msg.getControllerValue()) / 127.0f;
+
+        const int armedIdx = midiLearnArmedParamIndex.load(std::memory_order_acquire);
+        if (armedIdx >= 0)
+        {
+            // Assign this CC to the armed param. Other params may keep the same CC
+            // (shared-CC is intentional — one physical knob can drive multiple params).
+            paramToCCIndex[armedIdx].store(cc, std::memory_order_release);
+            midiLearnArmedParamIndex.store(-1, std::memory_order_release);
+        }
+
+        // Push CC event to FIFO only if at least one param is mapped to this CC.
+        {
+            bool anyMapped = false;
+            for (int pi = 0; pi < MidiLearn::count; ++pi)
+                if (paramToCCIndex[pi].load(std::memory_order_relaxed) == cc) { anyMapped = true; break; }
+            if (anyMapped)
+            {
+                auto scope = midiCCFifo.write(1);
+                if (scope.blockSize1 > 0)
+                    midiCCFifoData[scope.startIndex1] = { cc, v };
+                else if (scope.blockSize2 > 0)
+                    midiCCFifoData[scope.startIndex2] = { cc, v };
+            }
+        }
+    }
+    midiMessages.clear();
+    // ─────────────────────────────────────────────────────────────────────────
 
     if (presetChangeResetPending.exchange(false, std::memory_order_acq_rel))
         resetRuntimeVoicingState();
@@ -2525,6 +2611,22 @@ void HexstackAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
         mutableState.setProperty(StateKeys::programIndex, currentProgramIndex, nullptr);
         mutableState.setProperty("hexFilePath", activeHexFilePath, nullptr);
         std::unique_ptr<juce::XmlElement> xml(mutableState.createXml());
+
+        // Append MIDI CC map as a sibling element.
+        auto* midiLearnEl = new juce::XmlElement("MidiLearn");
+        for (int pi = 0; pi < MidiLearn::count; ++pi)
+        {
+            const int cc = paramToCCIndex[pi].load(std::memory_order_relaxed);
+            if (cc >= 0 && cc < 128)
+            {
+                auto* entry = new juce::XmlElement("CC");
+                entry->setAttribute("cc", cc);
+                entry->setAttribute("param", MidiLearn::paramIDs[pi]);
+                midiLearnEl->addChildElement(entry);
+            }
+        }
+        xml->addChildElement(midiLearnEl);
+
         copyXmlToBinary(*xml, destData);
     }
 }
@@ -2535,11 +2637,117 @@ void HexstackAudioProcessor::setStateInformation(const void* data, int sizeInByt
 
     if (xmlState != nullptr)
     {
+        // Restore MIDI CC map before applying the parameter tree.
+        if (const auto* midiLearnEl = xmlState->getChildByName("MidiLearn"))
+        {
+            for (auto& a : paramToCCIndex)
+                a.store(-1, std::memory_order_relaxed);
+
+            for (auto* entry : midiLearnEl->getChildIterator())
+            {
+                const int cc    = entry->getIntAttribute("cc", -1);
+                const auto pid  = entry->getStringAttribute("param");
+                const int pidx  = MidiLearn::findIndex(pid);
+                if (cc >= 0 && cc < 128 && pidx >= 0)
+                    paramToCCIndex[pidx].store(cc, std::memory_order_relaxed);
+            }
+        }
+
         const auto tree = juce::ValueTree::fromXml(*xmlState);
         if (tree.isValid())
             applyLoadedStateTree(tree);
     }
 }
+
+// ── MIDI Learn public API ─────────────────────────────────────────────────────
+
+void HexstackAudioProcessor::armMidiLearn(const juce::String& paramId)
+{
+    const int idx = MidiLearn::findIndex(paramId);
+    midiLearnArmedParamIndex.store(idx, std::memory_order_release);
+}
+
+void HexstackAudioProcessor::disarmMidiLearn()
+{
+    midiLearnArmedParamIndex.store(-1, std::memory_order_release);
+}
+
+void HexstackAudioProcessor::clearMidiCC(const juce::String& paramId)
+{
+    const int idx = MidiLearn::findIndex(paramId);
+    if (idx < 0) return;
+    paramToCCIndex[idx].store(-1, std::memory_order_release);
+}
+
+void HexstackAudioProcessor::clearAllMidiCC()
+{
+    for (auto& a : paramToCCIndex)
+        a.store(-1, std::memory_order_release);
+    midiLearnArmedParamIndex.store(-1, std::memory_order_release);
+}
+
+juce::String HexstackAudioProcessor::getMidiLearnArmedParamId() const
+{
+    const int idx = midiLearnArmedParamIndex.load(std::memory_order_acquire);
+    if (idx >= 0 && idx < MidiLearn::count)
+        return MidiLearn::paramIDs[idx];
+    return {};
+}
+
+int HexstackAudioProcessor::getMidiCCForParam(const juce::String& paramId) const
+{
+    const int idx = MidiLearn::findIndex(paramId);
+    if (idx < 0) return -1;
+    return paramToCCIndex[idx].load(std::memory_order_relaxed);
+}
+
+void HexstackAudioProcessor::applyPendingMidiCCsOnMessageThread()
+{
+    const int available = midiCCFifo.getNumReady();
+    if (available <= 0) return;
+
+    auto scope = midiCCFifo.read(available);
+
+    const auto applyOne = [this](const PendingCCEvent& ev)
+    {
+        // Iterate every param — all those mapped to ev.cc get updated (shared-CC support).
+        for (int pidx = 0; pidx < MidiLearn::count; ++pidx)
+        {
+            if (paramToCCIndex[pidx].load(std::memory_order_acquire) != ev.cc)
+                continue;
+
+            const char* pid = MidiLearn::paramIDs[pidx];
+            auto* p = parameters.getParameter(pid);
+            if (p == nullptr) continue;
+
+            // Remap through heel/toe for expression-pedal-aware params.
+            float finalNorm = ev.normValue;
+            if (std::strcmp(pid, ParamIDs::fxPitchShift) == 0)
+            {
+                const auto* heel = parameters.getParameter(ParamIDs::fxPitchExprHeel);
+                const auto* toe  = parameters.getParameter(ParamIDs::fxPitchExprToe);
+                if (heel && toe)
+                    finalNorm = juce::jlimit(0.0f, 1.0f, heel->getValue() + ev.normValue * (toe->getValue() - heel->getValue()));
+            }
+            else if (std::strcmp(pid, ParamIDs::fxWahFreq) == 0)
+            {
+                const auto* heel = parameters.getParameter(ParamIDs::fxWahExprHeel);
+                const auto* toe  = parameters.getParameter(ParamIDs::fxWahExprToe);
+                if (heel && toe)
+                    finalNorm = juce::jlimit(0.0f, 1.0f, heel->getValue() + ev.normValue * (toe->getValue() - heel->getValue()));
+            }
+
+            p->setValueNotifyingHost(finalNorm);
+        }
+    };
+
+    for (int i = 0; i < scope.blockSize1; ++i)
+        applyOne(midiCCFifoData[scope.startIndex1 + i]);
+    for (int i = 0; i < scope.blockSize2; ++i)
+        applyOne(midiCCFifoData[scope.startIndex2 + i]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 bool HexstackAudioProcessor::saveHexPresetToFile(const juce::File& file, const juce::String& presetName)
 {
