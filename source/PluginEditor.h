@@ -109,6 +109,7 @@ private:
     std::vector<UserHexEntry> userHexPresets;
     int activeUserHexIndex { -1 };   // -1 = built-in preset active
     int numBuiltInPresets  { 0 };
+    juce::String lastKnownHexPath;   // processor's hex path as of last reconciliation tick
 
     void loadUserHexList();
     void saveUserHexList();
@@ -238,7 +239,6 @@ private:
     void refreshPostEqControlState();
     void updateTabVisibility();
     void updateTunerDisplay();
-    void syncPresetComboSelection();
     void syncFxPowerFromParameters();
     bool getFxPowerParameterValue(size_t index) const;
     void setFxPowerParameterValue(size_t index, bool enabled);

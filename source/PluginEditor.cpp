@@ -525,6 +525,9 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
         if (! restored)
             presetCombo.setSelectedId(audioProcessor.getCurrentProgram() + 1, juce::dontSendNotification);
     }
+    // Initialise the reconciliation baseline so the first timer tick doesn't
+    // treat the initial state as a DAW-restore change.
+    lastKnownHexPath = audioProcessor.getActiveHexFilePath();
 
     presetCombo.onChange = [this]
     {
@@ -536,7 +539,10 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
         {
             // Built-in preset
             activeUserHexIndex = -1;
+            lastKnownHexPath = {};
             audioProcessor.setCurrentProgram(selectedId - 1);
+            refreshIRStatus();
+            resized();
         }
         else
         {
@@ -2131,6 +2137,41 @@ void HexstackAudioProcessorEditor::updateTunerDisplay()
 void HexstackAudioProcessorEditor::timerCallback()
 {
     syncFxPowerFromParameters();
+
+    // Reconcile combo selection with processor state so that DAW undo/redo and
+    // project recall update the combo even when the editor was already open.
+    {
+        const juce::String currentHexPath = audioProcessor.getActiveHexFilePath();
+        if (currentHexPath != lastKnownHexPath)
+        {
+            lastKnownHexPath = currentHexPath;
+            if (currentHexPath.isNotEmpty())
+            {
+                bool found = false;
+                for (int i = 0; i < static_cast<int>(userHexPresets.size()); ++i)
+                {
+                    if (userHexPresets[static_cast<size_t>(i)].file.getFullPathName() == currentHexPath)
+                    {
+                        activeUserHexIndex = i;
+                        presetCombo.setSelectedId(numBuiltInPresets + i + 1, juce::dontSendNotification);
+                        found = true;
+                        break;
+                    }
+                }
+                if (! found)
+                    activeUserHexIndex = -1;
+            }
+            else
+            {
+                activeUserHexIndex = -1;
+                presetCombo.setSelectedId(audioProcessor.getCurrentProgram() + 1, juce::dontSendNotification);
+            }
+            refreshIRStatus();
+            refreshPostEqControlState();
+            repaint();
+        }
+    }
+
     const auto* syncValue = audioProcessor.getParametersState().getRawParameterValue(ParamIDs::fxDelaySync);
     const bool syncEnabled = syncValue != nullptr && syncValue->load() >= 0.5f;
     if (syncEnabled != lastDelaySyncUiState)
@@ -2147,23 +2188,6 @@ void HexstackAudioProcessorEditor::timerCallback()
             limiterGrLabel.setText("-" + juce::String(std::abs(grDb), 1), juce::dontSendNotification);
         else
             limiterGrLabel.setText("-0.0", juce::dontSendNotification);
-    }
-}
-
-void HexstackAudioProcessorEditor::syncPresetComboSelection()
-{
-    if (activeUserHexIndex >= 0 && activeUserHexIndex < static_cast<int>(userHexPresets.size()))
-    {
-        // A user hex preset is active — keep the combo pointing at it.
-        const int selectedId = numBuiltInPresets + activeUserHexIndex + 1;
-        if (presetCombo.getSelectedId() != selectedId)
-            presetCombo.setSelectedId(selectedId, juce::dontSendNotification);
-    }
-    else
-    {
-        const int selectedId = audioProcessor.getCurrentProgram() + 1;
-        if (presetCombo.getSelectedId() != selectedId)
-            presetCombo.setSelectedId(selectedId, juce::dontSendNotification);
     }
 }
 

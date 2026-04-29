@@ -2681,6 +2681,13 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
         }
     }
 
+    // Stamp the source file path into the state tree before calling
+    // applyLoadedStateTree.  The function skips the "re-apply built-in preset"
+    // step when hexFilePath is non-empty — without this, every .hex load would
+    // immediately overwrite the loaded parameters with stock built-in values
+    // because saveHexPresetToFile never writes hexFilePath into the embedded XML.
+    stateTree.setProperty("hexFilePath", file.getFullPathName(), nullptr);
+
     const bool ok = applyLoadedStateTree(stateTree);
 
     // After applyLoadedStateTree, load the embedded IR if one was found.
@@ -2698,8 +2705,6 @@ bool HexstackAudioProcessor::loadHexPresetFromFile(const juce::File& file)
         requestCabTransitionReset();
     }
 
-    // Override the hex file path with the actual file being loaded (old .hex files
-    // pre-date this field so applyLoadedStateTree would leave it empty).
     if (ok)
         activeHexFilePath = file.getFullPathName();
 
@@ -2722,12 +2727,6 @@ bool HexstackAudioProcessor::applyLoadedStateTree(const juce::ValueTree& tree)
         currentProgramIndex = juce::jlimit(0, getNumPrograms() - 1, static_cast<int>(tree.getProperty(StateKeys::programIndex)));
     else
         currentProgramIndex = inferProgramIndexFromState(tree);
-
-    // If the saved state was on a built-in preset (no .hex file), re-apply the
-    // canonical preset values so that version updates to built-in presets are
-    // always reflected instead of showing stale saved parameter values.
-    if (tree.getProperty("hexFilePath", "").toString().isEmpty())
-        setCurrentProgram(currentProgramIndex);
 
     const auto source = tree.getProperty(StateKeys::irSource).toString();
     const auto path = tree.getProperty(StateKeys::irPath).toString();

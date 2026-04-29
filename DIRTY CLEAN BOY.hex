@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<HEXSTACKPreset schemaVersion="1" presetName="Default">
+  <PluginState>
+    <PARAMETERS irSource="builtin" irPath="" programIndex="0">
+      <PARAM id="bass" value="3.649999618530273"/>
+      <PARAM id="cabHighCut" value="5000.0"/>
+      <PARAM id="cabLowCut" value="70.0"/>
+      <PARAM id="depth" value="0.796000063419342"/>
+      <PARAM id="fxDelayFeedback" value="0.5210000276565552"/>
+      <PARAM id="fxDelayMix" value="0.1160000041127205"/>
+      <PARAM id="fxDelaySync" value="1.0"/>
+      <PARAM id="fxDelayTimeMs" value="540.0"/>
+      <PARAM id="fxDelayTone" value="0.08800000697374344"/>
+      <PARAM id="fxDelayWidth" value="0.08000000566244125"/>
+      <PARAM id="fxDriveAmount" value="0.1200000047683716"/>
+      <PARAM id="fxDriveLevel" value="6.19999885559082"/>
+      <PARAM id="fxDriveMix" value="1.0"/>
+      <PARAM id="fxDriveTight" value="0.9600000381469727"/>
+      <PARAM id="fxDriveTone" value="0.4200000166893005"/>
+      <PARAM id="fxPitchMix" value="1.0"/>
+      <PARAM id="fxPitchShift" value="0.0"/>
+      <PARAM id="fxPitchWidth" value="0.300000011920929"/>
+      <PARAM id="fxPower1" value="1.0"/>
+      <PARAM id="fxPower2" value="0.0"/>
+      <PARAM id="fxPower3" value="0.0"/>
+      <PARAM id="fxPower4" value="1.0"/>
+      <PARAM id="fxPower5" value="1.0"/>
+      <PARAM id="fxReverbDamp" value="0.7200000286102295"/>
+      <PARAM id="fxReverbMix" value="0.3800000250339508"/>
+      <PARAM id="fxReverbPreDelayMs" value="12.0"/>
+      <PARAM id="fxReverbSize" value="0.2960000038146973"/>
+      <PARAM id="fxWahFreq" value="0.4200000166893005"/>
+      <PARAM id="fxWahMix" value="1.0"/>
+      <PARAM id="fxWahQ" value="2.799999952316284"/>
+      <PARAM id="gain" value="0.0"/>
+      <PARAM id="input" value="-17.65999984741211"/>
+      <PARAM id="lofi" value="0.0"/>
+      <PARAM id="lofiIntensity" value="0.0"/>
+      <PARAM id="master" value="-15.0"/>
+      <PARAM id="mids" value="-3.539999961853027"/>
+      <PARAM id="postEq125" value="3.579999923706055"/>
+      <PARAM id="postEq16k" value="-12.0"/>
+      <PARAM id="postEq1k" value="1.399999618530273"/>
+      <PARAM id="postEq250" value="-1.090000152587891"/>
+      <PARAM id="postEq2k" value="4.520000457763672"/>
+      <PARAM id="postEq31" value="-12.0"/>
+      <PARAM id="postEq4k" value="-0.4700002670288086"/>
+      <PARAM id="postEq500" value="-2.030000686645508"/>
+      <PARAM id="postEq62" value="-1.710000038146973"/>
+      <PARAM id="postEq8k" value="-3.579999923706055"/>
+      <PARAM id="postEqEnabled" value="1.0"/>
+      <PARAM id="presence" value="2.059999465942383"/>
+      <PARAM id="stfu" value="0.0"/>
+      <PARAM id="treble" value="3.25"/>
+      <PARAM id="tunerRange" value="0.0"/>
+      <PARAM id="tunerReference" value="1.0"/>
+      <PARAM id="voicing" value="0.0"/>
+    </PARAMETERS>
+  </PluginState>
+</HEXSTACKPreset>
