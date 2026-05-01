@@ -5,6 +5,12 @@
 #include <atomic>
 #include <vector>
 
+JUCE_BEGIN_IGNORE_WARNINGS_MSVC(4127 4244 4267 4702)
+JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE("-Wzero-as-null-pointer-constant", "-Wconversion", "-Wshadow")
+#include <signalsmith-stretch/signalsmith-stretch.h>
+JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+JUCE_END_IGNORE_WARNINGS_MSVC
+
 class HexstackAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -130,9 +136,14 @@ private:
     int reverbPreDelayWritePosition { 0 };
     std::array<float, 2> overdriveToneState { 0.0f, 0.0f };
     std::array<float, 2> overdriveTightState { 0.0f, 0.0f };
-    float pitchReadOffset { 0.0f };
+    // Signalsmith phase-vocoder pitch shifter (MIT, header-only)
+    signalsmith::stretch::SignalsmithStretch<float> pitchStretcher;
+    std::vector<float> pitchTempIn, pitchTempOut;  // per-block scratch buffers
+    // Chorus state
+    std::array<float, 2> chorusLpfState { 0.0f, 0.0f };  // 1-pole LPF for BBD warmth
+    // Chorus LFO state (width effect, independent of pitch shifter)
     float pitchChorusPhase  { 0.0f };
-    float pitchChorusPhase2 { juce::MathConstants<float>::pi };  // second LFO for dual-voice chorus
+    float pitchChorusPhase2 { juce::MathConstants<float>::pi };
     std::array<float, 2> delayToneState { 0.0f, 0.0f };
     std::array<float, 2> delayHighPassState { 0.0f, 0.0f };
     std::array<float, 2> delayDuckEnvelope { 0.0f, 0.0f };

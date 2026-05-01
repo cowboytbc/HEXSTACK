@@ -458,6 +458,7 @@ namespace PresetData
         bool overdriveOn;
         bool reverbOn;
         bool delayOn;
+        bool isLead;
         float gate;
         float driveAmount;
         float driveTone;
@@ -478,21 +479,21 @@ namespace PresetData
 
     static const std::array<Preset, 3> presets {
         Preset { "Default", 11.0f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
-                 false, false, false, false, false,
+                 false, false, false, false, false, false,
                  0.25f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  360.0f, 0.16f, 0.24f, 0.18f, 0.08f,
                  0.16f, 0.72f, 0.18f, 8.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
         Preset { "DIRTY CLEAN BOY", 4.0f, 0.0f, 3.65f, -3.54f, 3.25f, 2.06f, 0.796f, -15.0f,
-                 true, false, false, true, true,
+                 true, false, false, true, true, false,
                  0.0f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  540.0f, 0.521f, 0.088f, 0.116f, 0.08f,
                  0.296f, 0.72f, 0.38f, 12.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
         Preset { "LEADer of Cola", 5.0f, 0.708f, 3.07f, -3.64f, 1.71f, 1.68f, 0.656f, -13.5f,
-                 false, false, true, true, true,
+                 false, false, true, true, true, true,
                  0.37f,
                  0.644f, 0.436f, -4.36f, 1.0f, 0.0f,
                  540.0f, 0.499f, 0.248f, 0.156f, 0.0f,
@@ -858,7 +859,7 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
     setBoolParam(ParamIDs::fxPower3, preset.overdriveOn);
     setBoolParam(ParamIDs::fxPower4, preset.reverbOn);
     setBoolParam(ParamIDs::fxPower5, preset.delayOn);
-    setBoolParam(ParamIDs::voicing, false);  // default to Rhythm
+    setBoolParam(ParamIDs::voicing, preset.isLead);
     setBoolParam(ParamIDs::lofi, false);
     setFloatParam(ParamIDs::stfu, preset.gate);
     setFloatParam(ParamIDs::tapeSaturation, 0.0f);
@@ -935,7 +936,8 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     delayWritePosition = 0;
     pitchWritePosition = 0;
     reverbPreDelayWritePosition = 0;
-    pitchReadOffset = 0.0f;
+    pitchStretcher.reset();
+    chorusLpfState.fill(0.0f);
 
     overdriveToneState.fill(0.0f);
     overdriveTightState.fill(0.0f);
@@ -1016,7 +1018,7 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
 
     pitchBuffer.setSize(1,
                         juce::jmax(samplesPerBlock * 8,
-                                   juce::roundToInt(currentSampleRate * 0.12)));
+                                   juce::roundToInt(currentSampleRate * 0.60)));
     pitchBuffer.clear();
     delayBuffer.setSize(currentNumChannels,
                         juce::jmax(samplesPerBlock * 2,
@@ -1033,7 +1035,18 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     reverbPreDelayWritePosition = 0;
     overdriveToneState.fill(0.0f);
     overdriveTightState.fill(0.0f);
-    pitchReadOffset   = 0.0f;
+
+    // Signalsmith pitch shifter — 1536-sample window (~35ms @ 44100)
+    // fastSizeAbove rounds this up to a 2048-pt FFT (same frequency resolution as the
+    // 2048 window), so we get 2048 quality at ~35ms instead of 46ms latency.
+    // 4x overlap, no split-computation.
+    pitchStretcher.configure (1, 1536, 384, false);
+    pitchStretcher.setTransposeSemitones (0.0f);
+    setLatencySamples (pitchStretcher.inputLatency() + pitchStretcher.outputLatency());
+    const int pitchScratch = juce::jmax(samplesPerBlock * 2, 4096);
+    pitchTempIn.assign(static_cast<size_t>(pitchScratch), 0.0f);
+    pitchTempOut.assign(static_cast<size_t>(pitchScratch), 0.0f);
+    chorusLpfState.fill(0.0f);
     pitchChorusPhase  = 0.0f;
     pitchChorusPhase2 = juce::MathConstants<float>::pi;
     delayToneState.fill(0.0f);
@@ -1996,148 +2009,143 @@ void HexstackAudioProcessor::processPitchEffect(juce::AudioBuffer<float>& buffer
                                                 float pitchMix,
                                                 float pitchWidth)
 {
-    if (pitchBuffer.getNumChannels() <= 0 || pitchBuffer.getNumSamples() < 512)
-        return;
-
-    const float mix = juce::jlimit(0.0f, 1.0f, pitchMix);
+    const float mix   = juce::jlimit(0.0f, 1.0f, pitchMix);
     const float width = juce::jlimit(0.0f, 1.0f, pitchWidth);
     const bool usePitchShift = std::abs(pitchShift) >= 0.01f;
-    const bool useChorus = width >= 0.001f;
+    const bool useChorus     = width >= 0.001f;
     if (mix <= 0.0005f || (! usePitchShift && ! useChorus))
         return;
 
+    const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
-    if (numChannels <= 0)
+    if (numChannels <= 0 || numSamples <= 0)
         return;
 
-    const int bufferSize = pitchBuffer.getNumSamples();
-    const float baseRatio = std::pow(2.0f, pitchShift / 12.0f);
-    const int windowSize = juce::jlimit(384,
-                                        bufferSize - 4,
-                                        juce::roundToInt(static_cast<float>(currentSampleRate) * 0.035f));
-    const float halfWindow = 0.5f * static_cast<float>(windowSize);
-    const float advance = usePitchShift ? juce::jlimit(-0.95f, 3.5f, baseRatio - 1.0f)
-                                        : 0.0f;
-    const float widthCurve = std::pow(width, 0.92f);
-    // chorusBlend: how much the modulated delays replace the dry signal in each voice.
-    // Raised from 0.08+0.40 (max 0.48) to 0.12+0.63 (max 0.75) for a fuller, more audible chorus.
-    const float chorusBlend = juce::jlimit(0.0f, 1.0f, 0.12f + widthCurve * 0.63f);
-    const float chorusWetness = juce::jlimit(0.0f, 1.0f, std::pow(widthCurve, 1.35f));
-    // Primary LFO rate; secondary LFO runs at golden-ratio multiple for non-periodic beating.
-    const float chorusRateHz  = juce::jmap(widthCurve, 0.18f, 0.72f);
-    const float chorusRate2Hz = chorusRateHz * (1.0f + widthCurve * 0.618f);
-    // Depth raised from max 5.2ms to max 10ms for a lush, audible sweep.
-    const float chorusDepthSamples = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.0012f, 0.0100f);
-    const float chorusBaseDelaySamples = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.011f, 0.020f);
-    const float chorusPhaseAdvance  = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRateHz  / currentSampleRate);
-    const float chorusPhaseAdvance2 = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRate2Hz / currentSampleRate);
+    const int circBufSize = pitchBuffer.getNumSamples();
+    if (circBufSize < 512)
+        return;
 
-    auto wrapWindowPosition = [windowSize](float value)
+    // Grow scratch buffers if needed (avoids realtime allocation in normal operation)
+    if (static_cast<int>(pitchTempIn.size()) < numSamples)
     {
-        const float window = static_cast<float>(windowSize);
-        while (value < 0.0f)
-            value += window;
-        while (value >= window)
-            value -= window;
-        return value;
-    };
+        pitchTempIn.resize(static_cast<size_t>(numSamples) * 2, 0.0f);
+        pitchTempOut.resize(static_cast<size_t>(numSamples) * 2, 0.0f);
+    }
 
-    auto readInterpolatedSample = [this, bufferSize](float delaySamples)
+    const float cbf = static_cast<float>(circBufSize);
+
+    // -----------------------------------------------------------------------
+    // Phase 1 — collect mono dry, fill pitchBuffer for chorus delay reads
+    // -----------------------------------------------------------------------
+    for (int s = 0; s < numSamples; ++s)
     {
-        float readPosition = static_cast<float>(pitchWritePosition) - delaySamples;
-        while (readPosition < 0.0f)
-            readPosition += static_cast<float>(bufferSize);
-        while (readPosition >= static_cast<float>(bufferSize))
-            readPosition -= static_cast<float>(bufferSize);
+        float mono = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+            mono += buffer.getReadPointer(ch)[s];
+        mono /= static_cast<float>(numChannels);
+        pitchTempIn[s] = mono;
+        pitchBuffer.setSample(0, (pitchWritePosition + s) % circBufSize, mono);
+    }
 
-        const int index0 = static_cast<int>(std::floor(readPosition));
-        const int index1 = (index0 + 1) % bufferSize;
-        const float frac = readPosition - static_cast<float>(index0);
-        const float s0 = pitchBuffer.getSample(0, index0);
-        const float s1 = pitchBuffer.getSample(0, index1);
-        return s0 + (s1 - s0) * frac;
-    };
-
-    auto renderGranularVoice = [&](float grainA, float grainB, float envA, float envB, float modulationSamples)
+    // -----------------------------------------------------------------------
+    // Phase 2 — Signalsmith phase-vocoder pitch shift (whole block at once)
+    // -----------------------------------------------------------------------
+    if (usePitchShift)
     {
-        const float sampleA = readInterpolatedSample(static_cast<float>(windowSize) - grainA + modulationSamples);
-        const float sampleB = readInterpolatedSample(static_cast<float>(windowSize) - grainB - modulationSamples * 0.35f);
-        const float envelopeSum = juce::jmax(1.0e-4f, envA + envB);
-        return (sampleA * envA + sampleB * envB) / envelopeSum;
-    };
-
-    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        pitchStretcher.setTransposeSemitones(pitchShift);
+        float* inPtr  = pitchTempIn.data();
+        float* outPtr = pitchTempOut.data();
+        pitchStretcher.process(&inPtr, numSamples, &outPtr, numSamples);
+    }
+    else
     {
-        float monoDry = 0.0f;
-        for (int channel = 0; channel < numChannels; ++channel)
-            monoDry += buffer.getReadPointer(channel)[sample];
+        std::copy(pitchTempIn.begin(), pitchTempIn.begin() + numSamples, pitchTempOut.begin());
+    }
 
-        monoDry /= static_cast<float>(numChannels);
-        pitchBuffer.setSample(0, pitchWritePosition, monoDry);
+    // -----------------------------------------------------------------------
+    // Phase 3 — per-sample chorus + wet/dry mix
+    // -----------------------------------------------------------------------
+    const float chorusLpfA  = std::exp(-2.0f * juce::MathConstants<float>::pi * 4000.0f
+                                       / static_cast<float>(currentSampleRate));
 
-        const float grainA = wrapWindowPosition(pitchReadOffset);
-        const float grainB = wrapWindowPosition(grainA + halfWindow);
+    const float widthCurve      = std::pow(width, 0.92f);
+    const float chorusBlend     = juce::jlimit(0.0f, 1.0f, 0.12f + widthCurve * 0.63f);
+    const float chorusWetness   = juce::jlimit(0.0f, 1.0f, std::pow(widthCurve, 1.35f));
+    const float chorusRateHz    = juce::jmap(widthCurve, 0.18f, 0.72f);
+    const float chorusRate2Hz   = chorusRateHz * (1.0f + widthCurve * 0.618f);
+    const float chorusDepth     = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.0012f, 0.0100f);
+    const float chorusBaseDelay = static_cast<float>(currentSampleRate) * juce::jmap(widthCurve, 0.011f, 0.020f);
+    const float chorusAdv       = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRateHz  / currentSampleRate);
+    const float chorusAdv2      = static_cast<float>(2.0 * juce::MathConstants<double>::pi * chorusRate2Hz / currentSampleRate);
 
-        const float envA = 1.0f - std::abs((grainA / halfWindow) - 1.0f);
-        const float envB = 1.0f - std::abs((grainB / halfWindow) - 1.0f);
+    for (int s = 0; s < numSamples; ++s)
+    {
+        const int   localWritePos = (pitchWritePosition + s) % circBufSize;
+        const float pitched       = pitchTempOut[s];
+        const float monoDry       = pitchTempIn[s];
 
-        const float centeredPitched = renderGranularVoice(grainA, grainB, envA, envB, 0.0f);
-        // Dual-LFO chorus: primary LFO (0°/90°) + secondary LFO at golden-ratio rate (0°/90°).
-        // Blending both (70/30) creates non-periodic beating that sounds like two detune voices.
-        const float lfo1L = std::sin(pitchChorusPhase);
-        const float lfo1R = std::sin(pitchChorusPhase + juce::MathConstants<float>::halfPi);
-        const float lfo2L = std::sin(pitchChorusPhase2);
-        const float lfo2R = std::sin(pitchChorusPhase2 + juce::MathConstants<float>::halfPi);
-        const float chorusLfoLeft  = lfo1L * 0.70f + lfo2L * 0.30f;
-        const float chorusLfoRight = lfo1R * 0.70f + lfo2R * 0.30f;
-        const float chorusDelayLeft  = chorusBaseDelaySamples + chorusDepthSamples * chorusLfoLeft;
-        const float chorusDelayRight = chorusBaseDelaySamples + chorusDepthSamples * chorusLfoRight;
-        const float chorusVoiceLeft  = readInterpolatedSample(chorusDelayLeft);
-        const float chorusVoiceRight = readInterpolatedSample(chorusDelayRight);
-        const float chorusStereoLeft  = monoDry * (1.0f - chorusBlend) + chorusVoiceLeft  * chorusBlend;
-        const float chorusStereoRight = monoDry * (1.0f - chorusBlend) + chorusVoiceRight * chorusBlend;
+        float wetL = pitched;
+        float wetR = pitched;
 
-        // When pitch shift is active, blend chorus more aggressively into the wet path so
-        // the whammy has stereo width and life instead of sounding like a single dry voice.
-        // Old multiplier was 0.28 (max 13% chorus); new 0.52 gives max ~39% chorus contribution.
-        const float chorMixFraction = usePitchShift ? 0.52f * chorusBlend : 1.0f;
-        const float wetLeft = usePitchShift
-            ? juce::jmap(chorusWetness,
-                         centeredPitched,
-                         centeredPitched * (1.0f - chorMixFraction) + chorusStereoLeft  * chorMixFraction)
-            : chorusStereoLeft;
-        const float wetRight = usePitchShift
-            ? juce::jmap(chorusWetness,
-                         centeredPitched,
-                         centeredPitched * (1.0f - chorMixFraction) + chorusStereoRight * chorMixFraction)
-            : chorusStereoRight;
+        if (useChorus)
+        {
+            const float lfo1L = std::sin(pitchChorusPhase);
+            const float lfo1R = std::sin(pitchChorusPhase + juce::MathConstants<float>::halfPi);
+            const float lfo2L = std::sin(pitchChorusPhase2);
+            const float lfo2R = std::sin(pitchChorusPhase2 + juce::MathConstants<float>::halfPi);
+            const float lfoL  = lfo1L * 0.70f + lfo2L * 0.30f;
+            const float lfoR  = lfo1R * 0.70f + lfo2R * 0.30f;
 
+            auto readChorusAt = [&](float delaySamples) -> float
+            {
+                float pos = static_cast<float>(localWritePos) - delaySamples;
+                while (pos < 0.0f)  pos += cbf;
+                while (pos >= cbf)  pos -= cbf;
+                const int   i0   = static_cast<int>(std::floor(pos));
+                const int   i1   = (i0 + 1) % circBufSize;
+                const float frac = pos - static_cast<float>(i0);
+                return pitchBuffer.getSample(0, i0) * (1.0f - frac)
+                     + pitchBuffer.getSample(0, i1) * frac;
+            };
+
+            float cVoiceL = readChorusAt(chorusBaseDelay + chorusDepth * lfoL);
+            float cVoiceR = readChorusAt(chorusBaseDelay + chorusDepth * lfoR);
+            // 1-pole LPF — BBD-style high-frequency warmth
+            chorusLpfState[0] = chorusLpfA * chorusLpfState[0] + (1.0f - chorusLpfA) * cVoiceL;
+            chorusLpfState[1] = chorusLpfA * chorusLpfState[1] + (1.0f - chorusLpfA) * cVoiceR;
+            cVoiceL = chorusLpfState[0];
+            cVoiceR = chorusLpfState[1];
+
+            const float chorFrac = usePitchShift ? 0.52f * chorusBlend : 1.0f;
+            wetL = juce::jmap(chorusWetness, pitched, pitched * (1.0f - chorFrac) + cVoiceL * chorFrac);
+            wetR = juce::jmap(chorusWetness, pitched, pitched * (1.0f - chorFrac) + cVoiceR * chorFrac);
+        }
+
+        // Dry/wet output
         if (numChannels == 1)
         {
-            const float monoWet = juce::jmap(mix,
-                                             monoDry,
-                                             0.5f * (wetLeft + wetRight));
-            buffer.getWritePointer(0)[sample] = monoWet;
+            buffer.getWritePointer(0)[s] = juce::jmap(mix, monoDry, 0.5f * (wetL + wetR));
         }
         else
         {
-            buffer.getWritePointer(0)[sample] = juce::jmap(mix, monoDry, wetLeft);
-            buffer.getWritePointer(1)[sample] = juce::jmap(mix, monoDry, wetRight);
-
-            for (int channel = 2; channel < numChannels; ++channel)
-                buffer.getWritePointer(channel)[sample] = juce::jmap(mix, monoDry, 0.5f * (wetLeft + wetRight));
+            const float dryL = buffer.getReadPointer(0)[s];
+            const float dryR = buffer.getReadPointer(1)[s];
+            buffer.getWritePointer(0)[s] = juce::jmap(mix, dryL, wetL);
+            buffer.getWritePointer(1)[s] = juce::jmap(mix, dryR, wetR);
+            for (int ch = 2; ch < numChannels; ++ch)
+                buffer.getWritePointer(ch)[s] = juce::jmap(mix, buffer.getReadPointer(ch)[s], 0.5f * (wetL + wetR));
         }
 
-        pitchReadOffset = wrapWindowPosition(grainA + advance);
-        pitchChorusPhase += chorusPhaseAdvance;
+        // Advance chorus LFO phases
+        pitchChorusPhase += chorusAdv;
         if (pitchChorusPhase >= juce::MathConstants<float>::twoPi)
             pitchChorusPhase -= juce::MathConstants<float>::twoPi;
-        pitchChorusPhase2 += chorusPhaseAdvance2;
+        pitchChorusPhase2 += chorusAdv2;
         if (pitchChorusPhase2 >= juce::MathConstants<float>::twoPi)
             pitchChorusPhase2 -= juce::MathConstants<float>::twoPi;
-
-        pitchWritePosition = (pitchWritePosition + 1) % bufferSize;
     }
+
+    pitchWritePosition = (pitchWritePosition + numSamples) % circBufSize;
 }
 
 bool HexstackAudioProcessor::isFxPedalEnabled(size_t index) const
@@ -2603,6 +2611,11 @@ juce::AudioProcessorEditor* HexstackAudioProcessor::createEditor()
 
 void HexstackAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
+    // Don't persist state for the standalone app — it should always open to the
+    // default preset. DAW sessions save/restore state via the host normally.
+    if (wrapperType == wrapperType_Standalone)
+        return;
+
     if (const auto state = parameters.copyState(); state.isValid())
     {
         auto mutableState = state;

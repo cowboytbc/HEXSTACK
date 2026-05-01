@@ -572,6 +572,7 @@ HexstackAudioProcessorEditor::HexstackAudioProcessorEditor(HexstackAudioProcesso
             }
         }
 
+        syncFxPowerFromParameters();   // keep LED states in sync with the new preset
         refreshPostEqControlState();
         refreshIRStatus();
         repaint();
@@ -1295,32 +1296,75 @@ void HexstackAudioProcessorEditor::paint(juce::Graphics& g)
     if (activeTab == ActiveTab::tuner && ! tunerInputLevelBarBounds.isEmpty())
     {
         const auto bar = tunerInputLevelBarBounds.toFloat();
-        // Background track
+        const float minDb = -60.0f, maxDb = 0.0f;
+        const float innerX = bar.getX() + 2.0f;
+        const float innerW = bar.getWidth() - 4.0f;
+
+        auto dbToX = [&](float db) {
+            return innerX + innerW * juce::jlimit(0.0f, 1.0f, (db - minDb) / (maxDb - minDb));
+        };
+
+        // Background
         g.setColour(juce::Colour::fromRGB(10, 10, 12));
         g.fillRoundedRectangle(bar, 4.0f);
         g.setColour(juce::Colour::fromRGB(236, 240, 246).withAlpha(0.12f));
         g.drawRoundedRectangle(bar.reduced(0.6f), 3.6f, 1.0f);
 
-        // Fill proportional to smoothed level (maps -60 → -6 dBFS to 0 → 1)
-        const float fillFraction = juce::jlimit(0.0f, 1.0f,
-            juce::jmap(tunerInputLevelSmoothedUi, -60.0f, -6.0f, 0.0f, 1.0f));
-        if (fillFraction > 0.001f)
+        // Segmented colour fill: blue (-60→-24), green (-24→-12), yellow (-12→-6), red (-6→0)
+        const float level = juce::jlimit(minDb, maxDb, tunerInputLevelSmoothedUi);
+        const float fillX = dbToX(level);
+        const float barTop = bar.getY() + 2.0f;
+        const float barBot = bar.getBottom() - 2.0f;
+        const float barHt  = barBot - barTop;
+        struct Seg { float fromDb, toDb; juce::Colour col; };
+        const Seg segs[] = {
+            { -60.0f, -24.0f, juce::Colour::fromRGB(60,  100, 210) },
+            { -24.0f, -12.0f, juce::Colour::fromRGB(50,  210,  90) },
+            { -12.0f,  -6.0f, juce::Colour::fromRGB(230, 180,  28) },
+            {  -6.0f,   0.0f, juce::Colour::fromRGB(220,  38,  48) }
+        };
+        for (const auto& seg : segs)
         {
-            const auto fill = bar.reduced(2.0f, 2.0f).withWidth(bar.reduced(2.0f, 2.0f).getWidth() * fillFraction);
-            const juce::Colour barColour = fillFraction > 0.8f
-                ? juce::Colour::fromRGB(220, 38, 48)   // red: very hot
-                : fillFraction > 0.4f
-                    ? juce::Colour::fromRGB(58, 210, 100)  // green: healthy signal
-                    : juce::Colour::fromRGB(80, 100, 200); // blue: weak signal
-            g.setColour(barColour.withAlpha(0.82f));
-            g.fillRoundedRectangle(fill, 3.0f);
+            const float x0 = dbToX(seg.fromDb);
+            const float x1 = std::min(dbToX(seg.toDb), fillX);
+            if (x1 > x0)
+            {
+                g.setColour(seg.col.withAlpha(0.84f));
+                g.fillRect(juce::Rectangle<float>(x0, barTop, x1 - x0, barHt));
+            }
+        }
+        // Round the filled region left edge
+        g.saveState();
+        g.reduceClipRegion(bar.reduced(2.0f, 2.0f).toNearestInt());
+        g.restoreState();
+
+        // Tick marks + labels below bar
+        const float tickLabelY = bar.getBottom() + 1.0f;
+        constexpr float tickDb[]  = { -60.f, -48.f, -36.f, -24.f, -12.f, -6.f, 0.f };
+        constexpr const char* tickLbl[] = { "-60", "-48", "-36", "-24", "-12", "-6", "0" };
+        g.setFont(juce::FontOptions(8.0f, juce::Font::plain));
+        for (int t = 0; t < 7; ++t)
+        {
+            const float tx = dbToX(tickDb[t]);
+            // tick line
+            g.setColour(juce::Colours::whitesmoke.withAlpha(0.30f));
+            g.drawLine(tx, bar.getBottom() - 2.0f, tx, tickLabelY + 3.0f, 1.0f);
+            // label centred on tick
+            g.setColour(juce::Colours::whitesmoke.withAlpha(0.45f));
+            g.drawText(juce::String(tickLbl[t]),
+                       juce::Rectangle<float>(tx - 14.0f, tickLabelY + 3.0f, 28.0f, 10.0f),
+                       juce::Justification::centred, false);
         }
 
-        // Label
-        g.setFont(juce::FontOptions(9.5f, juce::Font::plain));
-        g.setColour(juce::Colours::whitesmoke.withAlpha(0.38f));
-        g.drawFittedText("INPUT", tunerInputLevelBarBounds.withLeft(tunerInputLevelBarBounds.getRight() + 4),
-                         juce::Justification::centredLeft, 1);
+        // Live dB readout to the right of the bar
+        const juce::String dbText = (level <= minDb + 0.5f)
+            ? juce::String("-inf")
+            : juce::String(static_cast<int>(std::round(level))) + juce::String(" dB");
+        g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
+        g.setColour(juce::Colours::whitesmoke.withAlpha(0.72f));
+        g.drawText(dbText,
+                   juce::Rectangle<float>(bar.getRight() + 4.0f, bar.getY(), 42.0f, bar.getHeight()),
+                   juce::Justification::centredLeft, false);
     }
 
     if (activeTab == ActiveTab::fx && ! fxPedalAreaBounds.isEmpty())
@@ -1750,7 +1794,8 @@ void HexstackAudioProcessorEditor::resized()
     tunerFreqLabel.setBounds(tunerBounds.removeFromTop(S(32)));
     tunerCentsLabel.setBounds(tunerBounds.removeFromTop(S(26)));
     tunerBounds.removeFromTop(S(8));
-    tunerInputLevelBarBounds = tunerBounds.removeFromTop(S(10)).reduced(S(24), 0);
+    tunerBounds.removeFromTop(S(4));
+    tunerInputLevelBarBounds = tunerBounds.removeFromTop(S(14)).reduced(S(24), 0);
 
     auto fxBounds = fullTabArea.reduced(S(4));
     fxPanelLabel.setBounds(fxBounds.removeFromTop(S(24)));

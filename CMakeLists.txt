@@ -21,7 +21,14 @@ FetchContent_Declare(
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
-FetchContent_MakeAvailable(juce)
+FetchContent_Declare(
+    signalsmith-stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG        main
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(juce signalsmith-stretch)
 
 # Patch JUCE standalone so "Mute audio input" defaults to OFF.
 # A guitar amp plugin always requires live input — the user is responsible for
@@ -161,6 +168,7 @@ target_link_libraries(Hexstack
         HexstackAssets
         juce::juce_audio_utils
         juce::juce_dsp
+        signalsmith-stretch
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

@@ -83,7 +83,7 @@ private:
     juce::Slider tunerCentsMeter;
     juce::Rectangle<int> tunerMeterDrawBounds;
     juce::Rectangle<int> tunerInputLevelBarBounds;
-    float tunerInputLevelSmoothedUi { 0.0f };
+    float tunerInputLevelSmoothedUi { -100.0f };
     juce::Image expPedalRedImage;
     juce::Image expPedalBlackImage;
     juce::Image pedalStompImage;
