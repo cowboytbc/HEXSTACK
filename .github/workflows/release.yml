@@ -134,10 +134,17 @@ jobs:
           echo "Generated AMP.icns"
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DHEXSTACK_MACOS_ICNS="${GITHUB_WORKSPACE}/AMP.icns"
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DHEXSTACK_MACOS_ICNS="${GITHUB_WORKSPACE}/AMP.icns"
 
       - name: Build
-        run: cmake --build build --target Hexstack_Standalone Hexstack_VST3 Hexstack_AU
+        run: |
+          cmake --build build --config Release --target Hexstack_Standalone
+          cmake --build build --config Release --target Hexstack_VST3
+          cmake --build build --config Release --target Hexstack_AU
 
       - name: Collect macOS deliverables
         shell: bash
