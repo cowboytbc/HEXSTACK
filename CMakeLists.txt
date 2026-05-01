@@ -163,6 +163,10 @@ target_compile_definitions(Hexstack
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        # Prevent JUCE from doing 'using namespace juce' in JuceHeader.h.
+        # Without this, juce::Point<T> leaks into the global namespace and
+        # clashes with Carbon's Point typedef on macOS (MacTypes.h:548).
+        DONT_SET_USING_JUCE_NAMESPACE=1
 )
 
 if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/ASIOSDK/common")
