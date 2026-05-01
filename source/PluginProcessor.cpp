@@ -460,6 +460,8 @@ namespace PresetData
         bool delayOn;
         bool isLead;
         float gate;
+        float pitchWidth;
+        float tapeSaturation;
         float driveAmount;
         float driveTone;
         float driveLevel;
@@ -480,21 +482,21 @@ namespace PresetData
     static const std::array<Preset, 3> presets {
         Preset { "Default", 11.0f, 0.548f, 3.65f, -3.64f, 1.71f, 1.68f, 0.796f, -15.0f,
                  false, false, false, false, false, false,
-                 0.25f,
+                 0.25f, 0.0f, 0.0f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  360.0f, 0.16f, 0.24f, 0.18f, 0.08f,
                  0.16f, 0.72f, 0.18f, 8.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
         Preset { "DIRTY CLEAN BOY", 4.0f, 0.0f, 3.65f, -3.54f, 3.25f, 2.06f, 0.796f, -15.0f,
                  true, false, false, true, true, false,
-                 0.0f,
+                 0.0f, 0.30f, 0.17f,
                  0.12f, 0.42f, 6.2f, 1.0f, 0.96f,
                  540.0f, 0.521f, 0.088f, 0.116f, 0.08f,
                  0.296f, 0.72f, 0.38f, 12.0f,
                  { -12.0f, -1.71f, 3.58f, -1.09f, -2.03f, 1.4f, 4.52f, -0.47f, -3.58f, -12.0f } },
         Preset { "LEADer of Cola", 5.0f, 0.708f, 3.07f, -3.64f, 1.71f, 1.68f, 0.656f, -13.5f,
                  false, false, true, true, true, true,
-                 0.37f,
+                 0.37f, 0.0f, 0.0f,
                  0.644f, 0.436f, -4.36f, 1.0f, 0.0f,
                  540.0f, 0.499f, 0.248f, 0.156f, 0.0f,
                  0.492f, 0.98f, 0.284f, 12.0f,
@@ -862,12 +864,12 @@ void HexstackAudioProcessor::setCurrentProgram(int index)
     setBoolParam(ParamIDs::voicing, preset.isLead);
     setBoolParam(ParamIDs::lofi, false);
     setFloatParam(ParamIDs::stfu, preset.gate);
-    setFloatParam(ParamIDs::tapeSaturation, 0.0f);
+    setFloatParam(ParamIDs::tapeSaturation, preset.tapeSaturation);
     setFloatParam(ParamIDs::limiter, 0.0f);
     setFloatParam(ParamIDs::lofiIntensity, 0.0f);
     setFloatParam(ParamIDs::fxPitchShift, 0.0f);
     setFloatParam(ParamIDs::fxPitchMix, 1.0f);
-    setFloatParam(ParamIDs::fxPitchWidth, 0.0f);
+    setFloatParam(ParamIDs::fxPitchWidth, preset.pitchWidth);
     setFloatParam(ParamIDs::fxWahFreq, 0.42f);
     setFloatParam(ParamIDs::fxWahQ, 2.8f);
     setFloatParam(ParamIDs::fxWahMix, 1.0f);
@@ -958,6 +960,11 @@ void HexstackAudioProcessor::resetRuntimeVoicingState()
     stfuHoldCounter.fill(0);
     stfuHpfX.fill(0.0f);
     stfuHpfY.fill(0.0f);
+    fxLoopGateEnvelope.fill(0.0f);
+    fxLoopGateGain.fill(1.0f);
+    fxLoopGateHoldCounter.fill(0);
+    fxLoopGateHpfX.fill(0.0f);
+    fxLoopGateHpfY.fill(0.0f);
     pickTransientState.fill(0.0f);
     pitchChorusPhase  = 0.0f;
     pitchChorusPhase2 = juce::MathConstants<float>::pi;
@@ -1035,8 +1042,7 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     reverbPreDelayWritePosition = 0;
     overdriveToneState.fill(0.0f);
     overdriveTightState.fill(0.0f);
-    overdriveBypassSmooth.reset(currentSampleRate, 0.005);
-    overdriveBypassSmooth.setCurrentAndTargetValue(isFxPedalEnabled(2) ? 1.0f : 0.0f);
+    prevOverdriveBypass = isFxPedalEnabled(2) ? 1.0f : 0.0f;
 
     // Signalsmith pitch shifter — 1536-sample window (~35ms @ 44100)
     // fastSizeAbove rounds this up to a 2048-pt FFT (same frequency resolution as the
@@ -1068,6 +1074,11 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     stfuHoldCounter.fill(0);
     stfuHpfX.fill(0.0f);
     stfuHpfY.fill(0.0f);
+    fxLoopGateEnvelope.fill(0.0f);
+    fxLoopGateGain.fill(1.0f);
+    fxLoopGateHoldCounter.fill(0);
+    fxLoopGateHpfX.fill(0.0f);
+    fxLoopGateHpfY.fill(0.0f);
     pickTransientState.fill(0.0f);
 
     constexpr int tunerCaptureSize = 16384;
@@ -1217,7 +1228,15 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const bool pitchOn = isFxPedalEnabled(0);
     const bool wahOn = isFxPedalEnabled(1);
     const bool overdriveOn = isFxPedalEnabled(2);
-    overdriveBypassSmooth.setTargetValue(overdriveOn ? 1.0f : 0.0f);
+    const float overdriveBypassTarget = overdriveOn ? 1.0f : 0.0f;
+    // Slew toward target at a fixed rate: 1.0 / (0.050 * sampleRate) per sample = 50ms fade.
+    // prevOverdriveBypass moves one step closer each block so the ramp spans multiple blocks.
+    const float slewStep = static_cast<float>(buffer.getNumSamples()) / (0.050f * static_cast<float>(currentSampleRate));
+    const float overdriveBypassStart = prevOverdriveBypass;
+    const float nextOverdriveBypass  = overdriveBypassTarget > prevOverdriveBypass
+                                           ? juce::jmin(overdriveBypassTarget, prevOverdriveBypass + slewStep)
+                                           : juce::jmax(overdriveBypassTarget, prevOverdriveBypass - slewStep);
+    const float overdriveBypassEnd   = nextOverdriveBypass;
     const bool reverbOn = isFxPedalEnabled(3);
     const bool delayOn = isFxPedalEnabled(4);
     const bool lofiOn = getParameterValue(ParamIDs::lofi, 0.0f) >= 0.5f;
@@ -1259,29 +1278,29 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
     const float inputGain = juce::Decibels::decibelsToGain(inputDb);
     const float outputGain = juce::Decibels::decibelsToGain(masterDb);
-    const bool modernHighGainVoicing = overdriveOn || gain >= 0.58f || presetIsRhythm || presetIsLead;
+    const bool modernHighGainVoicing = gain >= 0.58f || presetIsRhythm || presetIsLead;
     const float ampFrontEndBoostDb = juce::jmap(gain,
                                                 modernHighGainVoicing ? (4.0f + 0.8f * rhythmBias - 0.3f * leadBias) : 0.6f,
                                                 modernHighGainVoicing ? (10.0f + 1.4f * rhythmBias - 0.5f * leadBias) : 3.0f);
     const float ampInputGain = inputGain * juce::Decibels::decibelsToGain(ampFrontEndBoostDb);
     const float preampGain = juce::jmap(gain,
-                                                     modernHighGainVoicing ? 4.4f : 2.5f,
-                                                     modernHighGainVoicing ? 29.5f : 22.0f);
+                                        modernHighGainVoicing ? 4.4f : 2.5f,
+                                        modernHighGainVoicing ? 29.5f : 22.0f);
     const float stage2Gain = juce::jmap(gain,
-                                                     modernHighGainVoicing ? 3.1f : 2.1f,
-                                                     modernHighGainVoicing ? 13.6f : 10.0f);
+                                        modernHighGainVoicing ? 3.1f : 2.1f,
+                                        modernHighGainVoicing ? 13.6f : 10.0f);
     const float powerAmpDrive = juce::jmap(gain,
-                                                         modernHighGainVoicing ? 1.08f : 1.18f,
-                                                         modernHighGainVoicing ? 2.28f : 3.02f);
-     const float ampLevelCompensation = juce::jmap(gain,
-                                                                  modernHighGainVoicing ? 1.01f : 1.05f,
-                                                                  modernHighGainVoicing ? 0.82f : 0.88f);
+                                           modernHighGainVoicing ? 1.08f : 1.18f,
+                                           modernHighGainVoicing ? 2.28f : 3.02f);
+    const float ampLevelCompensation = juce::jmap(gain,
+                                                  modernHighGainVoicing ? 1.01f : 1.05f,
+                                                  modernHighGainVoicing ? 0.82f : 0.88f);
     const float tightLowCutHz = juce::jmap(gain,
-                                                         modernHighGainVoicing ? (110.0f + 14.0f * rhythmBias - 6.0f * leadBias) : 82.0f,
-                                                         modernHighGainVoicing ? (170.0f + 24.0f * rhythmBias - 10.0f * leadBias) : 122.0f);
+                                           modernHighGainVoicing ? (110.0f + 14.0f * rhythmBias - 6.0f * leadBias) : 82.0f,
+                                           modernHighGainVoicing ? (170.0f + 24.0f * rhythmBias - 10.0f * leadBias) : 122.0f);
     const float preampTightCutHz = juce::jmap(gain,
-                                                             modernHighGainVoicing ? (215.0f + 20.0f * rhythmBias - 12.0f * leadBias) : 142.0f,
-                                                             modernHighGainVoicing ? (360.0f + 28.0f * rhythmBias - 16.0f * leadBias) : 255.0f);
+                                              modernHighGainVoicing ? (215.0f + 20.0f * rhythmBias - 12.0f * leadBias) : 142.0f,
+                                              modernHighGainVoicing ? (360.0f + 28.0f * rhythmBias - 16.0f * leadBias) : 255.0f);
     const float overdriveDriveCurve = std::pow(juce::jlimit(0.0f, 1.0f, overdriveAmount), 0.78f);
     const float overdriveToneCurve = std::pow(juce::jlimit(0.0f, 1.0f, overdriveTone), 0.88f);
     const float overdriveTightCurve = std::pow(juce::jlimit(0.0f, 1.0f, overdriveTight), 0.92f);
@@ -1306,14 +1325,22 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     {
         const float openThreshDb  = -70.0f + stfuKnobVal * 55.0f + 1.5f * rhythmBias - 2.0f * leadBias;
         const float openThresh    = juce::Decibels::decibelsToGain(openThreshDb);
-        const float closeThresh   = openThresh * juce::Decibels::decibelsToGain(-4.0f); // 4 dB hysteresis
+        // Hysteresis: 4 dB at low STFU → 7 dB at max. Wide enough to stop amp noise
+        // re-triggering, narrow enough not to guillotine note tails.
+        const float hysteresisDb  = -(4.0f + 3.0f * stfuKnobVal);
+        const float closeThresh   = openThresh * juce::Decibels::decibelsToGain(hysteresisDb);
 
-        const float envWindowSeconds  = 0.0048f - 0.0008f * rhythmBias + 0.0008f * leadBias;
+        // Longer env window (10 ms) tracks note shapes rather than instantaneous peaks,
+        // so natural note decay doesn't look identical to dead silence to the gate.
+        const float envWindowSeconds  = 0.010f - 0.002f * rhythmBias + 0.002f * leadBias;
         const float attackSeconds     = 0.0016f - 0.0003f * rhythmBias + 0.0002f * leadBias;
-        const float releaseSeconds    = juce::jmap(stfuKnobVal, 0.180f, 0.065f) + 0.060f * leadBias;
-        const float holdSeconds       = 0.080f + 0.010f * leadBias;
+        // Release stays long enough for note tails to breathe.
+        const float releaseSeconds    = juce::jmap(stfuKnobVal, 0.200f, 0.090f) + 0.050f * leadBias;
+        const float holdSeconds       = juce::jmap(stfuKnobVal, 0.080f, 0.042f) + 0.010f * leadBias;
         const int   holdSamples       = juce::roundToInt(holdSeconds * static_cast<float>(currentSampleRate));
-        const float expansionPow      = 2.5f + 4.5f * stfuKnobVal;
+        // Soft expansion: 1.5 at low STFU → 3.5 at max. A note 10% below threshold
+        // loses ~1.5 dB instead of 6+ dB, so decays sound natural rather than chopped.
+        const float expansionPow      = 1.5f + 2.0f * stfuKnobVal;
         // Minimum gain floor: -80 dB — never fully mutes to avoid hard click artefacts.
         const float minGain           = juce::Decibels::decibelsToGain(-80.0f);
 
@@ -1480,39 +1507,35 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             }
 
             {
-                // Advance smoother only on channel 0 to avoid double-stepping in stereo
-                const float odMix = (channel == 0) ? overdriveBypassSmooth.getNextValue()
-                                                    : overdriveBypassSmooth.getCurrentValue();
-                if (odMix > 0.0f)
-                {
-                    overdriveTightState[static_cast<size_t>(channel)] = overdriveTightAlpha * overdriveTightState[static_cast<size_t>(channel)]
-                                                                      + (1.0f - overdriveTightAlpha) * pre;
-                    const float tightened = pre - overdriveTightState[static_cast<size_t>(channel)];
-                    const float dryKeep = juce::jmap(overdriveTightCurve, 0.16f, 0.30f);
-                    const float screamerInput = tightened * (1.20f + 0.12f * overdriveDriveCurve)
-                                              + pre * dryKeep
-                                              + (0.018f + 0.014f * overdriveDriveCurve);
-                    const float clipped = std::tanh(screamerInput * overdriveGain)
-                                        - std::tanh(0.016f * overdriveGain);
-                    const float filtered = (1.0f - overdriveToneAlpha) * clipped
-                                         + overdriveToneAlpha * overdriveToneState[static_cast<size_t>(channel)];
-                    overdriveToneState[static_cast<size_t>(channel)] = filtered;
+                const float odMix = overdriveBypassStart + t * (overdriveBypassEnd - overdriveBypassStart);
+                overdriveTightState[static_cast<size_t>(channel)] = overdriveTightAlpha * overdriveTightState[static_cast<size_t>(channel)]
+                                                                  + (1.0f - overdriveTightAlpha) * pre;
+                const float tightened = pre - overdriveTightState[static_cast<size_t>(channel)];
+                const float dryKeep = juce::jmap(overdriveTightCurve, 0.16f, 0.30f);
+                const float dcBias = 0.018f + 0.014f * overdriveDriveCurve;
+                const float screamerInput = tightened * (1.20f + 0.12f * overdriveDriveCurve)
+                                          + pre * dryKeep
+                                          + dcBias;
+                const float clipped = std::tanh(screamerInput * overdriveGain)
+                                    - std::tanh(dcBias * overdriveGain);
+                const float filtered = (1.0f - overdriveToneAlpha) * clipped
+                                     + overdriveToneAlpha * overdriveToneState[static_cast<size_t>(channel)];
+                overdriveToneState[static_cast<size_t>(channel)] = filtered;
 
-                    const float midPush = juce::jlimit(-1.0f,
-                                                       1.0f,
-                                                       filtered * (1.22f + 0.10f * overdriveDriveCurve)
-                                                       + clipped * 0.08f
-                                                       + pre * (0.05f - 0.015f * overdriveToneCurve));
-                    const float ratEdge = std::tanh((midPush * (1.06f + 0.08f * overdriveToneCurve) + clipped * 0.05f)
-                                                    * juce::jmap(overdriveDriveCurve, 0.98f, 1.08f));
-                    const float brightBlend = juce::jmap(overdriveToneCurve, 0.06f, 0.42f);
-                    const float voiced = juce::jmap(brightBlend,
-                                                    midPush,
-                                                    ratEdge * (0.96f + 0.03f * overdriveToneCurve));
-                    const float driven = std::tanh(voiced * (1.00f + 0.08f * overdriveDriveCurve)) * overdriveLevelGain;
-                    const float fullMix = juce::jmap(juce::jlimit(0.0f, 1.0f, overdriveMix), pre, driven);
-                    pre = pre + odMix * (fullMix - pre);
-                }
+                const float midPush = juce::jlimit(-1.0f,
+                                                   1.0f,
+                                                   filtered * (1.22f + 0.10f * overdriveDriveCurve)
+                                                   + clipped * 0.08f
+                                                   + pre * (0.05f - 0.015f * overdriveToneCurve));
+                const float ratEdge = std::tanh((midPush * (1.06f + 0.08f * overdriveToneCurve) + clipped * 0.05f)
+                                                * juce::jmap(overdriveDriveCurve, 0.98f, 1.08f));
+                const float brightBlend = juce::jmap(overdriveToneCurve, 0.06f, 0.42f);
+                const float voiced = juce::jmap(brightBlend,
+                                                midPush,
+                                                ratEdge * (0.96f + 0.03f * overdriveToneCurve));
+                const float driven = std::tanh(voiced * (1.00f + 0.08f * overdriveDriveCurve)) * overdriveLevelGain;
+                const float fullMix = juce::jmap(juce::jlimit(0.0f, 1.0f, overdriveMix), pre, driven);
+                pre = pre + odMix * (fullMix - pre);
             }
 
             float x = inputHighPassFilters[channel].processSample(pre * smoothedAmpInputGain);
@@ -1550,6 +1573,7 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     // Commit smoothed gain targets after processing all channels.
+    prevOverdriveBypass    = overdriveBypassEnd;
     prevAmpInputGainLinear = ampInputGain;
     prevPreampGain         = preampGain;
     prevStage2Gain         = stage2Gain;
@@ -1651,6 +1675,70 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
                     y = postEqFilters[band][static_cast<size_t>(channel)].processSample(y);
 
                 data[sample] = juce::jlimit(-1.3f, 1.3f, y);
+            }
+        }
+    }
+
+    // FX loop gate — post-amp, pre-delay/reverb, same STFU knob.
+    // Tighter thresholds and shorter release than the input gate to catch
+    // amp/pick noise bleeding into the time-based effects.
+    if (stfuKnobVal > 0.005f)
+    {
+        const float flgOpenThreshDb  = -62.0f + stfuKnobVal * 48.0f + 1.5f * rhythmBias - 2.0f * leadBias;
+        const float flgOpenThresh    = juce::Decibels::decibelsToGain(flgOpenThreshDb);
+        const float flgCloseThresh   = flgOpenThresh * juce::Decibels::decibelsToGain(-5.0f);
+        const float flgEnvSeconds    = 0.0060f;
+        const float flgAttackSeconds = 0.0008f;
+        const float flgReleaseSeconds= juce::jmap(stfuKnobVal, 0.140f, 0.055f) + 0.040f * leadBias;
+        const float flgHoldSeconds   = 0.060f;
+        const int   flgHoldSamples   = juce::roundToInt(flgHoldSeconds * static_cast<float>(currentSampleRate));
+        const float flgExpansionPow  = 3.0f + 5.0f * stfuKnobVal;
+        const float flgMinGain       = juce::Decibels::decibelsToGain(-80.0f);
+        const float flgEnvCoeff      = std::exp(-1.0f / (flgEnvSeconds    * static_cast<float>(currentSampleRate)));
+        const float flgAttackCoeff   = std::exp(-1.0f / (flgAttackSeconds * static_cast<float>(currentSampleRate)));
+        const float flgReleaseCoeff  = std::exp(-1.0f / (flgReleaseSeconds* static_cast<float>(currentSampleRate)));
+        const float flgHpfFc         = 120.0f;
+        const float flgHpfR          = 1.0f / std::tan(juce::MathConstants<float>::pi * flgHpfFc / static_cast<float>(currentSampleRate));
+        const float flgHpfAlpha      = flgHpfR / (flgHpfR + 1.0f);
+
+        for (int channel = 0; channel < totalNumInputChannels; ++channel)
+        {
+            auto* data = buffer.getWritePointer(channel);
+            const auto ch = static_cast<size_t>(channel);
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            {
+                const float xIn   = data[sample];
+                const float hpOut = flgHpfAlpha * (fxLoopGateHpfY[ch] + xIn - fxLoopGateHpfX[ch]);
+                fxLoopGateHpfX[ch] = xIn;
+                fxLoopGateHpfY[ch] = hpOut;
+
+                fxLoopGateEnvelope[ch] = flgEnvCoeff * fxLoopGateEnvelope[ch]
+                                       + (1.0f - flgEnvCoeff) * std::abs(hpOut);
+
+                float targetGain;
+                if (fxLoopGateEnvelope[ch] >= flgOpenThresh)
+                {
+                    targetGain = 1.0f;
+                    fxLoopGateHoldCounter[ch] = flgHoldSamples;
+                }
+                else if (fxLoopGateHoldCounter[ch] > 0)
+                {
+                    targetGain = 1.0f;
+                    --fxLoopGateHoldCounter[ch];
+                }
+                else if (fxLoopGateEnvelope[ch] >= flgCloseThresh)
+                {
+                    targetGain = 1.0f;
+                }
+                else
+                {
+                    const float r = fxLoopGateEnvelope[ch] / juce::jmax(1e-9f, flgCloseThresh);
+                    targetGain = juce::jmax(flgMinGain, std::pow(r, flgExpansionPow));
+                }
+
+                const float coeff = (targetGain > fxLoopGateGain[ch]) ? flgAttackCoeff : flgReleaseCoeff;
+                fxLoopGateGain[ch] = coeff * fxLoopGateGain[ch] + (1.0f - coeff) * targetGain;
+                data[sample] *= fxLoopGateGain[ch];
             }
         }
     }

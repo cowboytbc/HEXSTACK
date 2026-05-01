@@ -136,7 +136,7 @@ private:
     int reverbPreDelayWritePosition { 0 };
     std::array<float, 2> overdriveToneState { 0.0f, 0.0f };
     std::array<float, 2> overdriveTightState { 0.0f, 0.0f };
-    juce::SmoothedValue<float> overdriveBypassSmooth;
+    float prevOverdriveBypass { 0.0f };
     // Signalsmith phase-vocoder pitch shifter (MIT, header-only)
     signalsmith::stretch::SignalsmithStretch<float> pitchStretcher;
     std::vector<float> pitchTempIn, pitchTempOut;  // per-block scratch buffers
@@ -159,9 +159,15 @@ private:
     std::array<float, 2> stfuEnvelope { 0.0f, 0.0f };
     std::array<float, 2> stfuGain { 1.0f, 1.0f };
     std::array<float, 2> limiterEnvelope { 0.0f, 0.0f };
-    std::array<int, 2>   stfuHoldCounter { 0, 0 };  // per-channel hold-open sample counter
-    std::array<float, 2> stfuHpfX { 0.0f, 0.0f };   // sidechain HPF: previous input sample
-    std::array<float, 2> stfuHpfY { 0.0f, 0.0f };   // sidechain HPF: previous output sample
+    std::array<int, 2>   stfuHoldCounter { 0, 0 };
+    std::array<float, 2> stfuHpfX { 0.0f, 0.0f };
+    std::array<float, 2> stfuHpfY { 0.0f, 0.0f };
+    // FX loop gate — runs post-amp, pre-reverb/delay, same STFU knob
+    std::array<float, 2> fxLoopGateEnvelope { 0.0f, 0.0f };
+    std::array<float, 2> fxLoopGateGain { 1.0f, 1.0f };
+    std::array<int, 2>   fxLoopGateHoldCounter { 0, 0 };
+    std::array<float, 2> fxLoopGateHpfX { 0.0f, 0.0f };
+    std::array<float, 2> fxLoopGateHpfY { 0.0f, 0.0f };
     std::array<float, 2> pickTransientState { 0.0f, 0.0f };
 
     juce::String currentIRName { "HEXSTACK OS V30 4X12 (SM57)" };
