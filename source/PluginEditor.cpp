@@ -113,7 +113,7 @@ namespace
         return juce::ImageFileFormat::loadFrom(data, size);
     }
 
-    juce::Image trimTransparentImage(juce::Image image, uint8 alphaThreshold = 8, int padding = 0)
+    juce::Image trimTransparentImage(juce::Image image, juce::uint8 alphaThreshold = 8, int padding = 0)
     {
         if (! image.isValid() || ! image.hasAlphaChannel())
             return image;
