@@ -20,6 +20,22 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      # ── Generate .icns from AMP.png ─────────────────────────────────────────
+      - name: Generate .icns
+        run: |
+          mkdir -p AMP.iconset
+          sips -z 16   16   AMP.png --out AMP.iconset/icon_16x16.png
+          sips -z 32   32   AMP.png --out AMP.iconset/icon_16x16@2x.png
+          sips -z 32   32   AMP.png --out AMP.iconset/icon_32x32.png
+          sips -z 64   64   AMP.png --out AMP.iconset/icon_32x32@2x.png
+          sips -z 128  128  AMP.png --out AMP.iconset/icon_128x128.png
+          sips -z 256  256  AMP.png --out AMP.iconset/icon_128x128@2x.png
+          sips -z 256  256  AMP.png --out AMP.iconset/icon_256x256.png
+          sips -z 512  512  AMP.png --out AMP.iconset/icon_256x256@2x.png
+          sips -z 512  512  AMP.png --out AMP.iconset/icon_512x512.png
+          sips -z 1024 1024 AMP.png --out AMP.iconset/icon_512x512@2x.png
+          iconutil -c icns AMP.iconset -o AMP.icns
+
       # ── Configure ───────────────────────────────────────────────────────────
       - name: Configure CMake
         run: |
@@ -27,7 +43,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DHEXSTACK_COPY_PLUGIN_AFTER_BUILD=ON \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
-            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DHEXSTACK_MACOS_ICNS="${GITHUB_WORKSPACE}/AMP.icns"
 
       # ── Build (VST3 + Standalone + AU) ──────────────────────────────────────
       - name: Build Release

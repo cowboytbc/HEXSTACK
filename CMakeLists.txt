@@ -126,6 +126,17 @@ juce_add_plugin(Hexstack
     ${HEXSTACK_PLUGIN_COPY_ARGS}
 )
 
+# On macOS, embed the .icns so the .app shows the correct icon in Finder/Dock
+if(APPLE AND DEFINED HEXSTACK_MACOS_ICNS AND EXISTS "${HEXSTACK_MACOS_ICNS}")
+    set_target_properties(Hexstack_Standalone PROPERTIES
+        MACOSX_BUNDLE_ICON_FILE "AMP.icns"
+    )
+    target_sources(Hexstack_Standalone PRIVATE "${HEXSTACK_MACOS_ICNS}")
+    set_source_files_properties("${HEXSTACK_MACOS_ICNS}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources"
+    )
+endif()
+
 juce_generate_juce_header(Hexstack)
 
 juce_add_binary_data(HexstackAssets

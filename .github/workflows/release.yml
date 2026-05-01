@@ -116,8 +116,25 @@ jobs:
           version="${tag#v}"
           echo "VERSION=${version}" >> "$GITHUB_ENV"
 
+      - name: Generate .icns from AMP.png
+        shell: bash
+        run: |
+          mkdir -p AMP.iconset
+          sips -z 16   16   AMP.png --out AMP.iconset/icon_16x16.png
+          sips -z 32   32   AMP.png --out AMP.iconset/icon_16x16@2x.png
+          sips -z 32   32   AMP.png --out AMP.iconset/icon_32x32.png
+          sips -z 64   64   AMP.png --out AMP.iconset/icon_32x32@2x.png
+          sips -z 128  128  AMP.png --out AMP.iconset/icon_128x128.png
+          sips -z 256  256  AMP.png --out AMP.iconset/icon_128x128@2x.png
+          sips -z 256  256  AMP.png --out AMP.iconset/icon_256x256.png
+          sips -z 512  512  AMP.png --out AMP.iconset/icon_256x256@2x.png
+          sips -z 512  512  AMP.png --out AMP.iconset/icon_512x512.png
+          sips -z 1024 1024 AMP.png --out AMP.iconset/icon_512x512@2x.png
+          iconutil -c icns AMP.iconset -o AMP.icns
+          echo "Generated AMP.icns"
+
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DHEXSTACK_MACOS_ICNS="${GITHUB_WORKSPACE}/AMP.icns"
 
       - name: Build
         run: cmake --build build --target Hexstack_Standalone Hexstack_VST3 Hexstack_AU
