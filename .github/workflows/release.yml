@@ -65,11 +65,11 @@ jobs:
           if (!(Test-Path $vst3Src)) { throw "VST3 bundle not found at $vst3Src" }
           if (!(Test-Path $exeSrc))  { throw "Standalone exe not found at $exeSrc" }
 
-          New-Item -ItemType Directory -Force -Path 'installer-staging\VST3\HEXSTACK.vst3' | Out-Null
-          New-Item -ItemType Directory -Force -Path 'installer-staging\Standalone'          | Out-Null
+          New-Item -ItemType Directory -Force -Path 'DELIVERABLES\Windows\VST3\HEXSTACK.vst3' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'DELIVERABLES\Windows\Standalone'          | Out-Null
 
-          Copy-Item -Recurse -Force "$vst3Src\*" 'installer-staging\VST3\HEXSTACK.vst3\'
-          Copy-Item -Force $exeSrc 'installer-staging\Standalone\HEXSTACK.exe'
+          Copy-Item -Recurse -Force "$vst3Src\*" 'DELIVERABLES\Windows\VST3\HEXSTACK.vst3\'
+          Copy-Item -Force $exeSrc 'DELIVERABLES\Windows\Standalone\HEXSTACK.exe'
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -77,19 +77,18 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          & $iscc 'installers\windows\hexstack.iss' "/DMyAppVersion=$env:VERSION"
+          & $iscc 'installer\HEXSTACK_Installer.iss' "/DAppVersion=$env:VERSION"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (exit $LASTEXITCODE)" }
-          $built = Get-ChildItem 'release\HEXSTACK-Windows-*-Setup.exe' | Select-Object -First 1
-          if (!$built) { throw "Installer .exe not found in release\" }
+          $built = Get-ChildItem 'installer\HEXSTACK_Installer_v*_Windows.exe' | Select-Object -First 1
+          if (!$built) { throw "Installer .exe not found in installer\" }
           Write-Output "Installer built: $($built.Name)"
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: HEXSTACK-windows-release
-          path: release/HEXSTACK-Windows-*-Setup.exe
+          path: installer/HEXSTACK_Installer_v*_Windows.exe
           if-no-files-found: error
 
   build-macos:

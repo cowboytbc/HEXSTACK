@@ -5,7 +5,9 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
 #define AppName        "HEXSTACK"
-#define AppVersion     "1.0"
+#ifndef AppVersion
+  #define AppVersion   "1.0"
+#endif
 #define AppPublisher   "INFERNO PLUGINS"
 #define AppURL         "https://myinferno.online/"
 #define VST3Src        "..\DELIVERABLES\Windows\VST3\HEXSTACK.vst3"
