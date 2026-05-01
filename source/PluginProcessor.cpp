@@ -1035,6 +1035,8 @@ void HexstackAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     reverbPreDelayWritePosition = 0;
     overdriveToneState.fill(0.0f);
     overdriveTightState.fill(0.0f);
+    overdriveBypassSmooth.reset(currentSampleRate, 0.005);
+    overdriveBypassSmooth.setCurrentAndTargetValue(isFxPedalEnabled(2) ? 1.0f : 0.0f);
 
     // Signalsmith pitch shifter — 1536-sample window (~35ms @ 44100)
     // fastSizeAbove rounds this up to a 2048-pt FFT (same frequency resolution as the
@@ -1215,6 +1217,7 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const bool pitchOn = isFxPedalEnabled(0);
     const bool wahOn = isFxPedalEnabled(1);
     const bool overdriveOn = isFxPedalEnabled(2);
+    overdriveBypassSmooth.setTargetValue(overdriveOn ? 1.0f : 0.0f);
     const bool reverbOn = isFxPedalEnabled(3);
     const bool delayOn = isFxPedalEnabled(4);
     const bool lofiOn = getParameterValue(ParamIDs::lofi, 0.0f) >= 0.5f;
@@ -1476,34 +1479,40 @@ void HexstackAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
                 pre = juce::jmap(juce::jlimit(0.0f, 1.0f, wahMix), pre, wahVoiced);
             }
 
-            if (overdriveOn)
             {
-                overdriveTightState[static_cast<size_t>(channel)] = overdriveTightAlpha * overdriveTightState[static_cast<size_t>(channel)]
-                                                                  + (1.0f - overdriveTightAlpha) * pre;
-                const float tightened = pre - overdriveTightState[static_cast<size_t>(channel)];
-                const float dryKeep = juce::jmap(overdriveTightCurve, 0.16f, 0.30f);
-                const float screamerInput = tightened * (1.20f + 0.12f * overdriveDriveCurve)
-                                          + pre * dryKeep
-                                          + (0.018f + 0.014f * overdriveDriveCurve);
-                const float clipped = std::tanh(screamerInput * overdriveGain)
-                                    - std::tanh(0.016f * overdriveGain);
-                const float filtered = (1.0f - overdriveToneAlpha) * clipped
-                                     + overdriveToneAlpha * overdriveToneState[static_cast<size_t>(channel)];
-                overdriveToneState[static_cast<size_t>(channel)] = filtered;
+                // Advance smoother only on channel 0 to avoid double-stepping in stereo
+                const float odMix = (channel == 0) ? overdriveBypassSmooth.getNextValue()
+                                                    : overdriveBypassSmooth.getCurrentValue();
+                if (odMix > 0.0f)
+                {
+                    overdriveTightState[static_cast<size_t>(channel)] = overdriveTightAlpha * overdriveTightState[static_cast<size_t>(channel)]
+                                                                      + (1.0f - overdriveTightAlpha) * pre;
+                    const float tightened = pre - overdriveTightState[static_cast<size_t>(channel)];
+                    const float dryKeep = juce::jmap(overdriveTightCurve, 0.16f, 0.30f);
+                    const float screamerInput = tightened * (1.20f + 0.12f * overdriveDriveCurve)
+                                              + pre * dryKeep
+                                              + (0.018f + 0.014f * overdriveDriveCurve);
+                    const float clipped = std::tanh(screamerInput * overdriveGain)
+                                        - std::tanh(0.016f * overdriveGain);
+                    const float filtered = (1.0f - overdriveToneAlpha) * clipped
+                                         + overdriveToneAlpha * overdriveToneState[static_cast<size_t>(channel)];
+                    overdriveToneState[static_cast<size_t>(channel)] = filtered;
 
-                const float midPush = juce::jlimit(-1.0f,
-                                                   1.0f,
-                                                   filtered * (1.22f + 0.10f * overdriveDriveCurve)
-                                                   + clipped * 0.08f
-                                                   + pre * (0.05f - 0.015f * overdriveToneCurve));
-                const float ratEdge = std::tanh((midPush * (1.06f + 0.08f * overdriveToneCurve) + clipped * 0.05f)
-                                                * juce::jmap(overdriveDriveCurve, 0.98f, 1.08f));
-                const float brightBlend = juce::jmap(overdriveToneCurve, 0.06f, 0.42f);
-                const float voiced = juce::jmap(brightBlend,
-                                                midPush,
-                                                ratEdge * (0.96f + 0.03f * overdriveToneCurve));
-                const float driven = std::tanh(voiced * (1.00f + 0.08f * overdriveDriveCurve)) * overdriveLevelGain;
-                pre = juce::jmap(juce::jlimit(0.0f, 1.0f, overdriveMix), pre, driven);
+                    const float midPush = juce::jlimit(-1.0f,
+                                                       1.0f,
+                                                       filtered * (1.22f + 0.10f * overdriveDriveCurve)
+                                                       + clipped * 0.08f
+                                                       + pre * (0.05f - 0.015f * overdriveToneCurve));
+                    const float ratEdge = std::tanh((midPush * (1.06f + 0.08f * overdriveToneCurve) + clipped * 0.05f)
+                                                    * juce::jmap(overdriveDriveCurve, 0.98f, 1.08f));
+                    const float brightBlend = juce::jmap(overdriveToneCurve, 0.06f, 0.42f);
+                    const float voiced = juce::jmap(brightBlend,
+                                                    midPush,
+                                                    ratEdge * (0.96f + 0.03f * overdriveToneCurve));
+                    const float driven = std::tanh(voiced * (1.00f + 0.08f * overdriveDriveCurve)) * overdriveLevelGain;
+                    const float fullMix = juce::jmap(juce::jlimit(0.0f, 1.0f, overdriveMix), pre, driven);
+                    pre = pre + odMix * (fullMix - pre);
+                }
             }
 
             float x = inputHighPassFilters[channel].processSample(pre * smoothedAmpInputGain);

@@ -136,6 +136,7 @@ private:
     int reverbPreDelayWritePosition { 0 };
     std::array<float, 2> overdriveToneState { 0.0f, 0.0f };
     std::array<float, 2> overdriveTightState { 0.0f, 0.0f };
+    juce::SmoothedValue<float> overdriveBypassSmooth;
     // Signalsmith phase-vocoder pitch shifter (MIT, header-only)
     signalsmith::stretch::SignalsmithStretch<float> pitchStretcher;
     std::vector<float> pitchTempIn, pitchTempOut;  // per-block scratch buffers
