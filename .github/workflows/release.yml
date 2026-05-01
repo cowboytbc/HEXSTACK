@@ -92,7 +92,7 @@ jobs:
 
   build-macos:
     name: Build macOS installer (.pkg)
-    runs-on: macos-15
+    runs-on: macos-14
     env:
       APPLE_DEV_ID_APP_CERT_P12_BASE64: ${{ secrets.APPLE_DEV_ID_APP_CERT_P12_BASE64 }}
       APPLE_DEV_ID_APP_CERT_PASSWORD:   ${{ secrets.APPLE_DEV_ID_APP_CERT_PASSWORD }}
